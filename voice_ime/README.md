@@ -1,16 +1,26 @@
-﻿# AI 语音输入法 MVP（Windows）
+﻿# AI 语音输入法（Windows）
 
-按住快捷键说话，松开即得经过**保守纠错、去语气词、智能标点**的干净文本，自动注入当前输入框。
+按一下右 Alt 开始录音，再按一下结束，即得经过**本地语音识别 + 大模型保守纠错**的干净文本，自动注入当前输入框。
 
-## 快速开始
+- 🎙️ **本地识别**：faster-whisper（GPU 加速、离线可用），不依赖云识别
+- ✨ **保守纠错**：过滤语气词、自动标点断句、修正谐音/术语（"配森"→"Python"）、词库热词
+- 🔐 **安全注入**：剪贴板全格式备份恢复 + UIPI 预检，不破坏你的剪贴板
+- 📦 **迷你波形胶囊**：录音时只显示一个 150×52 的小胶囊 + 真实音量波形
+
+> 📖 **完整部署文档见 [部署文档](../部署文档.md)**（技术栈/原理、环境要求、模型下载、GPU 加速、常见问题排查，一应俱全）。
+
+## 快速开始（摘要）
 
 ```powershell
 cd voice_ime
 pip install -r requirements.txt
-python main.py
+copy config.example.json config.json   # 然后编辑填入 DeepSeek API Key
+# 下载模型到 models/（详见部署文档 §5.5）
+python doctor.py                        # 环境自检，全部 ✅ 后运行
+python main.py                          # 或双击 启动.bat
 ```
 
-首次运行自动生成 `config.json` 与 `词库.txt`。
+首次运行自动生成 `config.json` 与 `词库.txt`；模型下载、API Key 配置、GPU 加速等完整步骤见部署文档。
 
 ## 配置（config.json）
 
