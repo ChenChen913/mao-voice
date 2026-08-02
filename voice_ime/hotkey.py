@@ -1,0 +1,104 @@
+"""全局热键监听：单击触发切换（toggle）。回调通过工作线程异步派发，不阻塞 pynput 监听线程。"""
+import logging
+import queue
+import threading
+import time
+
+from pynput import keyboard
+
+_log = logging.getLogger(__name__)
+
+_SPECIAL = {
+    "ctrl_l": keyboard.Key.ctrl_l, "ctrl_r": keyboard.Key.ctrl_r,
+    "alt_l": keyboard.Key.alt_l, "alt_r": keyboard.Key.alt_r,
+    "shift_l": keyboard.Key.shift_l, "shift_r": keyboard.Key.shift_r,
+    "f1": keyboard.Key.f1, "f2": keyboard.Key.f2, "f3": keyboard.Key.f3,
+    "f4": keyboard.Key.f4, "f5": keyboard.Key.f5, "f6": keyboard.Key.f6,
+    "f7": keyboard.Key.f7, "f8": keyboard.Key.f8, "f9": keyboard.Key.f9,
+    "f10": keyboard.Key.f10, "f11": keyboard.Key.f11, "f12": keyboard.Key.f12,
+    "caps_lock": keyboard.Key.caps_lock, "space": keyboard.Key.space,
+    "enter": keyboard.Key.enter, "esc": keyboard.Key.esc,
+}
+
+# 防抖窗口（秒）：两次按下间隔小于该值视为双击误触，直接忽略。
+# 原因：toggle 模式下"按一下=切换一次"，Windows 的键盘自动重复
+# 或用户快速双击都会触发多次 on_press，200ms 防抖可保证一次单击只切换一次。
+_DEBOUNCE_SEC = 0.2
+
+# 工作线程停止哨兵
+_STOP = object()
+
+
+class HotkeyListener:
+    """单击触发切换的热键监听：按下事件触发一次 on_toggle()，不依赖按住/松开配对。"""
+
+    def __init__(self, key_name, on_toggle):
+        # 主键 + 别名：Windows 上右 Alt 常被 pynput 报告为 Key.alt_gr（AltGr），
+        # 因此 alt_r 配置需要同时匹配两者，否则用户按右 Alt 永远无法触发。
+        self.keys = {_SPECIAL.get(key_name, keyboard.KeyCode.from_char(key_name))}
+        if key_name == "alt_r":
+            self.keys.add(keyboard.Key.alt_gr)
+        self.on_toggle = on_toggle
+        self._last_time = 0.0  # 上次触发时刻（monotonic），用于防抖
+        self._lock = threading.Lock()  # 保护 _last_time 的读-改-写
+        self.listener = None
+        self._task_queue: queue.Queue = queue.Queue()
+        self._worker: threading.Thread | None = None
+
+    def start(self):
+        if self.listener is not None:
+            return  # 已在运行，避免创建重复监听器
+        # 启动工作线程，从队列取 toggle 请求并串行执行
+        self._task_queue = queue.Queue()
+        self._worker = threading.Thread(
+            target=self._run_worker, daemon=True, name="hotkey-worker"
+        )
+        self._worker.start()
+        self.listener = keyboard.Listener(on_press=self._on_press)
+        self.listener.daemon = True
+        self.listener.start()
+
+    def stop(self):
+        if self.listener:
+            self.listener.stop()
+            try:
+                joined = self.listener.join(timeout=1.0)
+            except Exception:
+                joined = False
+            # 只在 listener 实际退出后才清空引用，避免与 start() 竞争
+            if joined and not self.listener.is_alive():
+                self.listener = None
+        # 通知工作线程退出
+        if self._worker is not None and self._worker.is_alive():
+            self._task_queue.put(_STOP)
+            self._worker.join(timeout=2.0)
+            self._worker = None
+
+    def _run_worker(self):
+        """工作线程：从队列取请求并串行执行 on_toggle()，避免阻塞 pynput 监听线程。"""
+        while True:
+            try:
+                item = self._task_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            if item is _STOP:
+                break
+            try:
+                self.on_toggle()
+            except Exception:
+                _log.exception("HotkeyListener.on_toggle 回调异常")
+
+    def _on_press(self, key):
+        if key not in self.keys:
+            return
+        now = time.monotonic()
+        # 防抖：事件间隔 <200ms 忽略，防止双击误触 / 系统按键重复造成连切
+        with self._lock:
+            if now - self._last_time < _DEBOUNCE_SEC:
+                return
+            self._last_time = now
+        # 派发到工作线程，绝不阻塞 pynput 监听线程
+        try:
+            self._task_queue.put_nowait(key)
+        except queue.Full:
+            pass  # 极端情况：队列满则丢弃，避免阻塞监听线程

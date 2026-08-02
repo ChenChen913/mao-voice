@@ -1,0 +1,10 @@
+# 用户词库：每行一条。支持 原词=指定写法，或直接写词条
+# 示例：
+# 配森=Python
+# 喵酱
+GitHub
+Python
+JSON
+配森=Python
+杰森=JSON
+吉特哈布=GitHub

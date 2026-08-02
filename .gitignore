@@ -1,0 +1,20 @@
+# ---- model binaries (large, not committed) ----
+voice_ime/models/
+
+# ---- sensitive config (contains API key) ----
+voice_ime/config.json
+
+# ---- agent workspaces and results ----
+voice_ime/tasks/
+voice_ime/results/
+
+# ---- python ----
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- logs and temp ----
+*.log
+
+# ---- screenshots / demo artifacts ----
+*.png

@@ -1,0 +1,28 @@
+{
+  "hotkey": "alt_r",
+  "asr": {
+    "engine": "whisper",
+    "model": "C:\\Users\\11853\\Desktop\\AI项目\\输入法项目\\voice_ime\\models\\faster-whisper-medium",
+    "language": null,
+    "cloud": {
+      "base_url": "",
+      "api_key": "",
+      "model": "whisper-1"
+    }
+  },
+  "recorder": {
+    "auto_stop_silence_sec": 0
+  },
+  "refine": {
+    "enabled": true,
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "",
+    "model": "deepseek-chat",
+    "level": "conservative",
+    "timeout_sec": 30
+  },
+  "ui": {
+    "preview_sec": 1.5,
+    "max_chars": 300
+  }
+}

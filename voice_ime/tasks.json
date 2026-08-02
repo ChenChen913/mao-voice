@@ -1,0 +1,109 @@
+{
+  "tasks": [
+    {
+      "name": "claude-injector",
+      "workdir": "tasks/claude-injector",
+      "agent": "claude",
+      "prompt_file": "TASK.md",
+      "timeout": 600
+    },
+    {
+      "name": "hermes-vad",
+      "workdir": "tasks/hermes-vad",
+      "agent": "hermes",
+      "prompt_file": "TASK.md",
+      "timeout": 600
+    },
+    {
+      "name": "hermes-draft-smooth",
+      "workdir": "tasks/hermes-draft-smooth",
+      "agent": "hermes",
+      "prompt_file": "TASK.md",
+      "timeout": 600
+    },
+    {
+      "name": "claude-cloud-asr",
+      "workdir": "tasks/claude-cloud-asr",
+      "agent": "claude",
+      "prompt_file": "TASK.md",
+      "timeout": 600
+    },
+    {
+      "name": "hermes-doctor",
+      "workdir": "tasks/hermes-doctor",
+      "agent": "hermes",
+      "prompt_file": "TASK.md",
+      "timeout": 600
+    },
+    {
+      "name": "claude-fix-interaction",
+      "workdir": "tasks/claude-fix-interaction",
+      "agent": "claude",
+      "prompt_file": "TASK.md",
+      "timeout": 900
+    },
+    {
+      "name": "hermes-ui",
+      "workdir": "tasks/hermes-ui",
+      "agent": "hermes",
+      "prompt_file": "TASK.md",
+      "timeout": 900
+    },
+    {
+      "name": "hermes-mini-ui",
+      "workdir": "tasks/hermes-mini-ui",
+      "agent": "hermes",
+      "prompt_file": "TASK.md",
+      "timeout": 900
+    },
+    {
+      "name": "claude-asr-accuracy",
+      "workdir": "tasks/claude-asr-accuracy",
+      "agent": "claude",
+      "prompt_file": "TASK.md",
+      "timeout": 900
+    },
+    {
+      "name": "hermes-wave-ui",
+      "workdir": "tasks/hermes-wave-ui",
+      "agent": "hermes",
+      "prompt_file": "TASK.md",
+      "timeout": 900
+    },
+    {
+      "name": "claude-rms-feed",
+      "workdir": "tasks/claude-rms-feed",
+      "agent": "claude",
+      "prompt_file": "TASK.md",
+      "timeout": 900
+    },
+    {
+      "name": "claude-ocr-fix",
+      "workdir": "tasks/claude-ocr-fix",
+      "agent": "claude",
+      "prompt_file": "TASK.md",
+      "timeout": 1200
+    },
+    {
+      "name": "hermes-ocr-fix",
+      "workdir": "tasks/hermes-ocr-fix",
+      "agent": "hermes",
+      "prompt_file": "TASK.md",
+      "timeout": 1200
+    },
+    {
+      "name": "claude-ocr-fix2",
+      "workdir": "tasks/claude-ocr-fix2",
+      "agent": "claude",
+      "prompt_file": "TASK.md",
+      "timeout": 1500
+    },
+    {
+      "name": "hermes-ocr-fix2",
+      "workdir": "tasks/hermes-ocr-fix2",
+      "agent": "hermes",
+      "prompt_file": "TASK.md",
+      "timeout": 1500
+    }
+  ]
+}
