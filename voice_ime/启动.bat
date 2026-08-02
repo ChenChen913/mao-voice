@@ -6,7 +6,7 @@ cd /d "%~dp0"
 echo.
 echo  ==========================================
 echo     AI 语音输入法
-echo     按住右 Ctrl 说话，松开自动输入
+echo     按一下右 Alt 开始录音，再按一下结束
 echo     右键悬浮窗可退出
 echo  ==========================================
 echo.
@@ -21,7 +21,7 @@ if errorlevel 1 (
 )
 
 echo  [启动中] 正在运行 python main.py ...
-echo  （保持本窗口开启；按住右 Ctrl 开始说话）
+echo  （保持本窗口开启；按一下右 Alt 开始说话）
 echo.
 python main.py
 

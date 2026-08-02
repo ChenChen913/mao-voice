@@ -2,7 +2,7 @@
   "hotkey": "alt_r",
   "asr": {
     "engine": "whisper",
-    "model": "C:\\Users\\11853\\Desktop\\AI项目\\输入法项目\\voice_ime\\models\\faster-whisper-medium",
+    "model": "models/faster-whisper-medium",
     "language": null,
     "cloud": {
       "base_url": "",
