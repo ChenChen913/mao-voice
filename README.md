@@ -1,0 +1,184 @@
+﻿# AI 语音输入法（mao-voice）
+
+按一下右 Alt 开始录音，再按一下结束，即得经过**本地语音识别 + 大模型保守纠错**的干净文本，自动注入当前输入框。
+
+- 🎙️ **本地识别**：faster-whisper（CTranslate2，GPU 加速、离线可用），不依赖云识别
+- ✨ **保守纠错**：过滤语气词、自动标点断句、修正谐音/术语（"配森"→"Python"）、词库热词
+- 🔐 **安全注入**：剪贴板全格式备份恢复 + UIPI 预检 + 冲突检测，不破坏你的剪贴板
+- 📦 **迷你波形胶囊**：录音时只显示一个 150×52 的小胶囊 + 5 根真实音量波形，不抢焦点
+- ⚡ **一键部署**：`启动.bat` 双击即用，`doctor.py` 环境自检，完整步骤见部署文档
+
+---
+
+## 仓库结构
+
+```
+mao-voice/
+├── 部署文档.md                      # 📖 完整部署指南（技术栈/原理/环境/部署/运行/维护/FAQ）
+├── PRD_AI语音输入法.md              # 产品需求文档
+├── SPEC_AI语音输入法_MVP.md         # 技术规格文档
+├── AI语音输入法_调研与产品设计.md    # 需求调研与竞品分析
+├── voice_ime/
+│   ├── main.py                      # 入口：toggle 状态机 + 管线编排
+│   ├── config.py / config.example.json
+│   ├── hotkey.py / recorder.py / asr.py / refiner.py
+│   ├── safe_inject.py / ui.py / vad.py / draft_smoother.py
+│   ├── cloud_asr.py / doctor.py / orchestrate.py
+│   ├── 词库.txt / 启动.bat / requirements.txt
+│   ├── models/                      # 模型（不入库，见部署文档 §5.5）
+│   └── tests/                       # 注入回归测试
+```
+
+---
+
+## 快速开始（摘要）
+
+```powershell
+cd voice_ime
+pip install -r requirements.txt
+copy config.example.json config.json   # 编辑填入 DeepSeek API Key
+# 下载模型到 models/（详见部署文档 §5.5）
+python doctor.py                        # 环境自检，全部 ✅ 后运行
+python main.py                          # 或双击 启动.bat
+```
+
+> 📖 **完整部署文档见 [部署文档](./部署文档.md)**：技术栈与技术原理、实现逻辑、环境要求、模型下载（ModelScope）、GPU 加速、常见问题排查，一应俱全。
+
+---
+
+## 核心配置（config.json）
+
+```json
+{
+  "hotkey": "alt_r",
+  "asr": {
+    "engine": "whisper",
+    "model": "models/faster-whisper-medium",
+    "language": null,
+    "cloud": { "base_url": "", "api_key": "", "model": "whisper-1" }
+  },
+  "recorder": { "auto_stop_silence_sec": 0 },
+  "refine": {
+    "enabled": true,
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-你的key",
+    "model": "deepseek-chat",
+    "level": "conservative",
+    "timeout_sec": 30
+  },
+  "ui": { "preview_sec": 1.5, "max_chars": 300 }
+}
+```
+
+- `hotkey`：录音开关热键，`alt_r` / `alt_l` / `ctrl_r` / `f1~f12` / `caps_lock` 等；
+- `asr.model`：本地模型路径（`models/faster-whisper-medium` 等），离线识别；
+- `asr.engine`：`whisper`（本地）或 `cloud`（云端兜底，OpenAI 兼容端点）；
+- `asr.language`：`null` = 自动检测（中英混杂友好）；`"zh"` = 固定中文；
+- `recorder.auto_stop_silence_sec`：静音超时自动结束录音（0 = 关闭）；
+- `refine.level`：`conservative`（保守纠错，默认）/ `light` / `polish`；
+- 不填 `refine.api_key` 时自动跳过润色，直接输出原始转写。
+
+> ⚠️ `config.json` 含密钥，已在 `.gitignore` 中排除；仓库只提供脱敏的 `config.example.json`。
+
+---
+
+## 词库（voice_ime/词库.txt）
+
+每行一条，`#` 开头为注释：
+
+```
+# 用户词库
+配森=Python        # 原词=指定写法：润色时强制按指定写法输出
+喵酱              # 词条：要求保持该词不被改写
+Python
+```
+
+词库内容自动拼入 ASR `initial_prompt` 与 LLM 提示词（已做数据定界防注入）。
+
+---
+
+## 使用说明
+
+1. 打开任意可输入文字的窗口（记事本、聊天框、文档）；
+2. **按一下右 Alt** 开始录音——屏幕底部中央出现迷你波形胶囊；
+3. 说完**再按一下右 Alt** 结束——悬浮窗依次显示「转写中 → 润色中 → 预览」；
+4. 文字自动注入光标处，悬浮窗消失；
+5. 退出：右键悬浮窗 → 退出，或关闭控制台窗口。
+
+**演示检查清单**
+
+- [ ] `config.json` 已填 DeepSeek API Key
+- [ ] 麦克风可用（系统设置 > 隐私 > 麦克风 已授权）
+- [ ] 模型已下载到 `voice_ime/models/`
+- [ ] `python doctor.py` 全部 ✅
+
+---
+
+## 开发与维护
+
+### 多 Agent 编排工具（voice_ime/orchestrate.py）
+
+本项目由总 Agent（编排层）拆解任务、调用实体 Agent（Claude Code / Hermes）分模块实现后集成，工具化如下：
+
+```powershell
+python orchestrate.py --list      # 查看已配置的子任务
+python orchestrate.py --report    # 复盘已有结果（免费，含成本/耗时/语法检查）
+python orchestrate.py --noop      # 只打印将执行的命令（免费）
+python orchestrate.py             # 真正派发全部子任务（会产生 API 费用！）
+python orchestrate.py --only=任务名
+```
+
+子任务契约在 `tasks.json`；编排原则：子 Agent 只在独立工作区内写文件，编排层负责审查（语法检查/接口核对/功能测试）后再集成。
+
+### 子任务池（tasks.json）
+
+| 任务名 | Agent | 内容 |
+| --- | --- | --- |
+| `claude-injector` | claude | 安全剪贴板注入模块 |
+| `hermes-vad` | hermes | VAD 静音检测模块 |
+| `hermes-draft-smooth` | hermes | 草稿→最终文本过渡平滑模块 |
+| `claude-cloud-asr` | claude | 云端 ASR 兜底引擎 |
+| `hermes-doctor` | hermes | 演示前环境自检脚本 |
+
+### 代码审查（open-code-review）
+
+```powershell
+npm install -g @alibaba-group/open-code-review
+ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,*.json,*.txt,*.log,*.md,*.bat,*.wav"
+```
+
+历史审查与修复过程见 `voice_ime/OCR审查报告.md`。
+
+---
+
+## 更新记录
+
+### v2（2026-08-02 · 交互与稳定性）
+- **toggle 交互**：按一下右 Alt 开始/结束，不再长按；修复 AltGr 识别；200ms 防抖
+- **转写稳定性**：模型本地化（ModelScope 下载，离线可用）；CUDA 运行库修复（GPU 转写 0.18s）；CUDA 预检防挂起；启动预热模型
+
+### v3（2026-08-02 · 悬浮窗与准确度）
+- 迷你悬浮窗（300×70，象征性提示）；默认模型升级 medium；转写参数优化（beam 8、自动语言检测、幻觉抑制、词库热词）
+
+### v4（2026-08-02 · 波形胶囊与错位修复）
+- 150×52 胶囊 + 5 根真实 RMS 波形；修复"第二次录音字体错位"（先映射窗口再读尺寸）；RMS 电平链路（recorder→main→ui 线程安全接线）
+
+---
+
+## 常见问题
+
+| 问题 | 处理 |
+| --- | --- |
+| 提示"未配置 API Key" | 编辑 `voice_ime/config.json` 填入 `refine.api_key` |
+| 转写报"模型加载失败" | 按部署文档 §5.5 下载模型，确认 `asr.model` 路径 |
+| 提示"CUDA 运行库未安装" | 安装 `nvidia-cublas-cu12` `nvidia-cudnn-cu12`（清华镜像），或忽略（自动 CPU） |
+| 第一次说话慢/超时 | 首次会加载模型（medium 约 2 秒）；若未手动下载会尝试联网下载 |
+| 热键没反应 | 确认 `hotkey` 配置；检查其他软件占用 |
+| 注入失败 | 目标窗口为管理员权限会被 UIPI 拦截；失败时文字保留在剪贴板可手动粘贴 |
+| `python` 不是内部或外部命令 | Python 未加入 PATH，重装并勾选 "Add Python to PATH" |
+
+---
+
+## 许可证
+
+Apache-2.0（个人/黑客松项目，欢迎 fork 与改进）。
