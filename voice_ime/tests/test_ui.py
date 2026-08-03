@@ -8,19 +8,17 @@ from ui import Overlay, WAVE_BAR_COUNT
 
 
 @pytest.fixture()
-def overlay():
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        pytest.skip("无可用显示环境")
-    root.withdraw()
-    ov = Overlay(root)
+def overlay(tk_app_root):
+    ov = Overlay(tk_app_root)
     ov.show("RECORDING")
     for _ in range(5):
-        root.update()
+        tk_app_root.update()
     yield ov
-    ov._root.destroy()
-    root.destroy()
+    try:
+        ov.hide()
+        tk_app_root.withdraw()
+    except tk.TclError:
+        pass
 
 
 def test_silent_static_wave_and_speaking_animated(overlay):

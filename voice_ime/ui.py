@@ -94,11 +94,16 @@ class Overlay:
     """
 
     def __init__(self, root=None):
-        # 立即创建一个隐藏的 Tk 根窗口作为"锚点"，确保所有线程的
-        # after() 调用都能正确路由到主线程。避免首次 show() 从
-        # 工作线程调用时在错误的线程上创建 Tk 解释器。
-        self._root = tk.Tk()
-        self._root.withdraw()
+        # v5.15：优先复用调用方传入的 Tk 根窗口（main.py 传入主 root）。
+        # 原实现忽略参数自建第二个 Tk 根：一是双根设计冗余，
+        # 二是在 GitHub Actions 等受限桌面环境下第二个 Tk 根会报
+        # `tcl_findLibrary` 错误导致 CI 失败。独立使用（预览/演示）时
+        # 才自建隐藏根。
+        if root is not None:
+            self._root = root
+        else:
+            self._root = tk.Tk()
+            self._root.withdraw()
         self._canvas = None
         self._menu = None
         self._anim_job = None

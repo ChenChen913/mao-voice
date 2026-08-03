@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 """托盘图标与设置窗口单元测试（需要 Tk，无显示环境则跳过）。"""
-import tkinter as tk
-
-import pytest
 
 import config
 import settings_ui
@@ -25,18 +22,13 @@ def test_make_tray_image():
     assert img.size == (64, 64)
 
 
-def test_settings_window_tabs_and_save(tmp_path, monkeypatch):
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        pytest.skip("无可用显示环境")
-    root.withdraw()
+def test_settings_window_tabs_and_save(tmp_path, monkeypatch, tk_app_root):
     monkeypatch.setattr(settings_ui.messagebox, "showinfo", lambda *a, **k: None)
     monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: None)
 
     cfg = config.load_config(str(tmp_path / "c.json"))
     app = FakeApp(cfg, HistoryStore(str(tmp_path / "h.json")))
-    win = SettingsWindow(app, parent=root)
+    win = SettingsWindow(app, parent=tk_app_root)
     win.root.update()
 
     assert win.var_hotkey.get() == "alt_r"
@@ -46,4 +38,3 @@ def test_settings_window_tabs_and_save(tmp_path, monkeypatch):
     assert cfg["hotkey"] == "f9"
 
     win.root.destroy()
-    root.destroy()
