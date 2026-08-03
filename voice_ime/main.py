@@ -7,6 +7,7 @@ import queue
 import threading
 import time
 import tkinter as tk
+import logging
 
 from config import build_words_block, ensure_defaults, load_config
 from hotkey import HotkeyListener
@@ -67,6 +68,9 @@ class App:
         """
         with self._lock:
             if self.state == "IDLE":
+                # v5.11：在同一个临界区内创建 recorder 并置 RECORDING，
+                # 杜绝"状态已切 RECORDING 但 recorder 仍为 None"的竞态窗口
+                self.recorder = Recorder(on_draft=self._on_draft, on_level=self._on_level)
                 self.state = "RECORDING"
                 action = "start"
             elif self.state == "RECORDING":
@@ -85,16 +89,15 @@ class App:
         with self._lock:
             if self.state != "RECORDING":
                 return  # 极快速双击时已被并发的结束操作抢占 → 放弃启动，避免悬挂录音
-            # 锁内创建并赋值 recorder：保证热键线程把状态切到 PROCESSING 并启动 _process 时，
-            # 必然能看到已赋值的 recorder（原实现锁外赋值，存在 recorder 为 None 的竞态）
-            self.recorder = Recorder(on_draft=self._on_draft, on_level=self._on_level)
+            recorder = self.recorder
         self._post("RECORDING", "🎤 录音中…（再按一下 {} 结束）".format(label))
         try:
-            self.recorder.start()
+            recorder.start()
         except Exception:
             # 启动失败（无输入设备等）：复位状态并提示，避免一直卡在 RECORDING
             with self._lock:
-                self.recorder = None
+                if self.recorder is recorder:
+                    self.recorder = None
                 self.state = "IDLE"
             self._post("ERROR", "录音启动失败，请检查麦克风")
 
@@ -127,7 +130,7 @@ class App:
             self.overlay.set_levels(recorder.bands_now if recorder is not None else None)
             self.overlay.set_level(self._last_rms if recording else 0.0)
         except Exception:
-            pass
+            pass  # 悬浮窗偶发异常不影响录音主流程
         self.root.after(100, self._poll_level)
 
     def _finish_recording(self):
@@ -142,12 +145,21 @@ class App:
         with self._lock:
             if self.state != "RECORDING":
                 return  # 已有处理在进行，避免重复启动 worker
+            if self.recorder is None or not self.recorder.active:
+                # v5.11：录音流尚未真正启动（刚按下 start 的极短窗口）→ 本次结束忽略，
+                # 用户再按一次即可；避免对未启动的 recorder 空转
+                return
             self.state = "PROCESSING"
         threading.Thread(target=self._process, daemon=True).start()
 
     # ---------- 录音期间增量草稿 ----------
     def _on_draft(self, audio):
         try:
+            with self._lock:
+                if self.state != "RECORDING":
+                    # v5.11：结束录音（已进入 PROCESSING）后不再发起新的增量转写，
+                    # 缩小与最终整段转写的并发窗口
+                    return
             text = self.asr.transcribe(audio)
             text = text.strip()
             if text:
@@ -156,7 +168,7 @@ class App:
                     # 用于模型预热与未来"实时草稿"功能
                     self._last_draft = text
         except Exception:
-            pass
+            logging.exception("增量草稿转写异常（已忽略，不影响录音）")
 
     # ---------- 静音自动停止（主线程轮询） ----------
     def _poll_recording(self):
@@ -164,7 +176,8 @@ class App:
         if auto_stop > 0:
             with self._lock:
                 recording = self.state == "RECORDING"
-            if recording and self.recorder is not None:
+            # v5.11：active 守卫——新 Recorder 创建完成前，不读上一会话已停止的 recorder
+            if recording and self.recorder is not None and self.recorder.active:
                 try:
                     if self.recorder.vad.silence_seconds() >= auto_stop:
                         self._finish_recording()

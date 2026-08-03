@@ -151,6 +151,8 @@ class WhisperEngine:
         self.device = "cpu"
         # GPU 回退原因（如"GPU 不可用已回退 CPU"），供 UI 展示可读错误
         self._gpu_fallback_reason = ""
+        # v5.11：运行中 GPU 推理失败后置位，_load() 不再重试 GPU，避免反复崩溃
+        self._gpu_disabled = False
         # 词库与 initial_prompt 的懒加载缓存（进程内生效；运行中修改词库需重启）
         self._glossary_loaded = False       # 无论词库是否为空都只读一次
         self._glossary_terms = []
@@ -169,6 +171,9 @@ class WhisperEngine:
         这里直接读文件（也可换成 from config import load_words，结果一致）。
         只有读取成功才置 _glossary_loaded：文件瞬时不可读（I/O 错误/编码错误）
         时保持未加载，后续转写会重试，而不是静默空词库一辈子。
+
+        v5.11：先读入局部列表、全部成功后整体替换，避免"读取中途失败→重试"
+        时对已部分追加的列表再次追加，产生重复词条。
         """
         with self._load_lock:
             if self._glossary_loaded:
@@ -178,6 +183,7 @@ class WhisperEngine:
             )
             if not os.path.exists(path):
                 return  # 词库不存在 → 空热词，转写照常
+            terms, mappings = [], []
             try:
                 with open(path, "r", encoding="utf-8-sig") as f:
                     for line in f:
@@ -188,9 +194,9 @@ class WhisperEngine:
                             k, v = line.split("=", 1)
                             k, v = k.strip(), v.strip()
                             if k and v:
-                                self._glossary_mappings.append((k, v))
+                                mappings.append((k, v))
                         elif line:
-                            self._glossary_terms.append(line)
+                            terms.append(line)
             except (OSError, UnicodeDecodeError):
                 # 记日志便于诊断；_glossary_loaded 保持 False → 下次调用重试，
                 # 不把"读不了词库"永久固化（原实现静默吞掉且永不重试）
@@ -199,6 +205,8 @@ class WhisperEngine:
                     exc_info=True,
                 )
                 return
+            self._glossary_terms = terms
+            self._glossary_mappings = mappings
             self._glossary_loaded = True
 
     def _initial_prompt_text(self):
@@ -256,9 +264,11 @@ class WhisperEngine:
             if self.model is not None:
                 return
             from faster_whisper import WhisperModel
-            if not _cuda_libs_ready():
-                # CUDA 运行库缺失：直接走 CPU，避免 ctranslate2 在缺 DLL 时构造 GPU 模型挂起
-                self._gpu_fallback_reason = "CUDA 运行库未安装（缺 cublas/cudnn），已用 CPU 模式"
+            if self._gpu_disabled or not _cuda_libs_ready():
+                # 已回退过 CPU 或 CUDA 运行库缺失：直接走 CPU，
+                # 避免 ctranslate2 在缺 DLL 时构造 GPU 模型挂起 / 回退后再崩溃
+                if not self._gpu_disabled:
+                    self._gpu_fallback_reason = "CUDA 运行库未安装（缺 cublas/cudnn），已用 CPU 模式"
                 try:
                     self.model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
                     self.device = "cpu"
@@ -283,11 +293,29 @@ class WhisperEngine:
                     ) from e2
 
     def _fallback_to_cpu(self, error):
-        """推理时 GPU 不可用（如运行中才暴露的 DLL 崩溃）→ 重新加载 CPU(int8) 模型。"""
-        self._gpu_fallback_reason = "GPU 不可用已回退 CPU（{}）".format(error)
-        self.model = None
-        self.device = "cpu"
-        self._load()
+        """推理时 GPU 不可用（如运行中才暴露的 DLL 崩溃）→ 替换为 CPU(int8) 模型。
+
+        v5.11 竞态修复：换模型全程持锁，且新模型构造成功后才整体替换 self.model，
+        绝不把 self.model 置 None——并发线程要么读到旧 GPU 模型、要么读到新 CPU 模型，
+        两者都是有效模型对象，杜绝 `None.transcribe` 崩溃。
+        """
+        from faster_whisper import WhisperModel
+
+        with self._load_lock:
+            if self.device == "cpu":
+                return
+            self._gpu_fallback_reason = "GPU 不可用已回退 CPU（{}）".format(error)
+            self._gpu_disabled = True
+            try:
+                new_model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
+            except Exception as e2:
+                # CPU 也加载失败：允许下次 _load 再尝试 GPU（重置标志），异常带可读上下文
+                self._gpu_disabled = False
+                raise RuntimeError(
+                    "模型加载失败（已尝试 GPU 与 CPU）：GPU: {}; CPU: {}".format(error, e2)
+                ) from e2
+            self.model = new_model
+            self.device = "cpu"
 
     def _transcribe_once(self, audio, use_vad):
         """单次转写：参数集中于模块常量，改动一处全局生效。"""
@@ -338,11 +366,11 @@ class WhisperEngine:
                 raise RuntimeError("{}：{}".format(hint, e2)) from e2
 
     def warmup(self):
-        """后台预热：提前加载模型，避免第一次使用时才下载/加载；异常不抛出。"""
+        """后台预热：提前加载模型，避免第一次使用时才下载/加载；异常不抛出但记日志。"""
         try:
             self._load()
         except Exception:
-            pass
+            logging.warning("模型预热失败（首次转写时会重试）：", exc_info=True)
 
 
 if __name__ == "__main__":

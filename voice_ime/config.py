@@ -53,22 +53,42 @@ def save_config(cfg, path=CONFIG_PATH):
     os.replace 保证文件名级别的原子性，但若 rename 前内容尚未刷出用户态缓冲，
     断电可能让磁盘上留下零长/截断的临时文件并被原子改名覆盖好配置——
     故 rename 前必须 f.flush() + os.fsync() 让内容先落盘，原子性 + 持久性才完整。
+
+    v5.11：任一步骤失败时清理残留 .tmp 文件后重新抛出，避免陈旧临时文件堆积；
+    调用方（如 ensure_defaults）按需捕获。
     """
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def ensure_defaults(path=CONFIG_PATH, words_path=WORDS_PATH):
     if not os.path.exists(path):
-        save_config(DEFAULT_CONFIG, path)
+        try:
+            save_config(DEFAULT_CONFIG, path)
+        except Exception:
+            # v5.11：写默认配置失败（只读目录/磁盘满等）不应让启动崩溃，
+            # 记日志后用内存默认配置继续运行（与 load_config 的容错风格一致）
+            logging.warning("无法写入默认配置 %s，本次使用内存默认配置：", path, exc_info=True)
     if not os.path.exists(words_path):
-        with open(words_path, "w", encoding="utf-8") as f:
-            f.write("# 用户词库：每行一条。支持 原词=指定写法，或直接写词条\n")
-            f.write("# 示例：\n# 配森=Python\n# 喵酱\n")
+        try:
+            with open(words_path, "w", encoding="utf-8") as f:
+                f.write("# 用户词库：每行一条。支持 原词=指定写法，或直接写词条\n")
+                f.write("# 示例：\n# 配森=Python\n# 喵酱\n")
+        except OSError:
+            # v5.11：词库文件写失败不阻塞启动，运行时按空词库处理
+            logging.warning("无法创建词库文件 %s：", words_path, exc_info=True)
 
 
 def _deep_merge(base, override):

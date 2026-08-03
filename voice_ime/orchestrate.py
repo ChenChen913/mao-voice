@@ -61,6 +61,9 @@ def result_path(task):
 
 def run_agent(task):
     workdir = (BASE / task["workdir"]).resolve()
+    # v5.11：防越界——任务工作目录必须落在项目根内
+    if not str(workdir).startswith(str(BASE.resolve())):
+        raise ValueError("任务工作目录越界: {}".format(workdir))
     workdir.mkdir(parents=True, exist_ok=True)
     prompt = DEFAULT_PROMPT.format(prompt=task.get("prompt_file", "TASK.md"))
     cmd = build_command(task, prompt)
@@ -81,7 +84,7 @@ def run_agent(task):
         error_file = RESULTS / (task["name"] + ".timeout.txt")
         error_file.write_text(msg, encoding="utf-8")
         # 只写失败标记文件，绝不污染主结果文件（保持 JSON/纯输出格式一致）
-    except FileNotFoundError as e:
+    except OSError as e:  # v5.11：FileNotFoundError 之外还覆盖 PermissionError 等
         ok = False
         msg = "命令不可用: " + str(e)
         error_file = RESULTS / (task["name"] + ".error.txt")
@@ -126,8 +129,8 @@ def analyze_hermes(path):
 
 def find_results(task):
     """优先 results/<name>.*，兼容旧版放在工作区内的 claude_result.json / hermes_result.txt"""
-    # 跳过 .timeout.txt / .error.txt 等失败标记文件，只匹配真正的结果文件
-    _SKIP_NAMES = (".timeout.txt", ".error.txt")
+    # 跳过 .timeout.txt / .error.txt / .stderr.txt 等标记文件，只匹配真正的结果文件
+    _SKIP_NAMES = (".timeout.txt", ".error.txt", ".stderr.txt")
     cand = [
         p for p in RESULTS.glob(task["name"] + ".*")
         if not p.name.endswith(_SKIP_NAMES)
@@ -195,6 +198,9 @@ def cmd_report(tasks):
 
 
 def cmd_run(tasks):
+    if not tasks:
+        print("警告：没有匹配的任务（tasks.json 中无任务或 --only 过滤掉了全部任务）")
+        return
     print("派发 {} 个子任务（真实调用 Agent，会产生费用）...".format(len(tasks)))
     for t in tasks:
         print("\n>> [{name}] -> {agent} @ {workdir}".format(**t))
@@ -207,6 +213,9 @@ def cmd_run(tasks):
 
 
 def cmd_noop(tasks):
+    if not tasks:
+        print("警告：没有匹配的任务（tasks.json 中无任务或 --only 过滤掉了全部任务）")
+        return
     for t in tasks:
         prompt = DEFAULT_PROMPT.format(prompt=t.get("prompt_file", "TASK.md"))
         cmd = build_command(t, prompt)

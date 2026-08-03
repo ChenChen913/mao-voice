@@ -124,10 +124,11 @@ class VAD:
         if n_samples == 0:
             return
 
-        with self._lock:
-            # 计算当前帧的 RMS 能量 (dB)
-            db = self._compute_db(frame)
+        # v5.11：dB 计算是 CPU 密集的浮点运算且只依赖本帧数据，
+        # 移到锁外执行，缩短音频回调线程持有的临界区，减少与读线程的互相阻塞
+        db = self._compute_db(frame)
 
+        with self._lock:
             # 更新累计样本计数
             self._total_samples += n_samples
 

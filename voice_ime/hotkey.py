@@ -41,44 +41,62 @@ class HotkeyListener:
         self.on_toggle = on_toggle
         self._last_time = 0.0  # 上次触发时刻（monotonic），用于防抖
         self._lock = threading.Lock()  # 保护 _last_time 的读-改-写
+        self._life_lock = threading.Lock()  # v5.11：保护 start/stop 生命周期状态
         self.listener = None
-        self._task_queue: queue.Queue = queue.Queue()
+        self._task_queue: queue.Queue = queue.Queue(maxsize=16)
         self._worker: threading.Thread | None = None
+        self._gen = 0  # 工作线程代数：stop() 递增使残留线程退出，避免新旧 worker 并发
 
     def start(self):
-        if self.listener is not None:
-            return  # 已在运行，避免创建重复监听器
-        # 启动工作线程，从队列取 toggle 请求并串行执行
-        self._task_queue = queue.Queue()
-        self._worker = threading.Thread(
-            target=self._run_worker, daemon=True, name="hotkey-worker"
-        )
-        self._worker.start()
-        self.listener = keyboard.Listener(on_press=self._on_press)
-        self.listener.daemon = True
-        self.listener.start()
+        with self._life_lock:
+            if self.listener is not None:
+                return  # 已在运行，避免创建重复监听器
+            self._last_time = 0.0  # v5.11：重启后防抖窗口清零
+            # 启动工作线程，从队列取 toggle 请求并串行执行
+            self._gen += 1
+            gen = self._gen
+            self._task_queue = queue.Queue(maxsize=16)
+            self._worker = threading.Thread(
+                target=self._run_worker, args=(self._task_queue, gen),
+                daemon=True, name="hotkey-worker",
+            )
+            self._worker.start()
+            self.listener = keyboard.Listener(on_press=self._on_press)
+            self.listener.daemon = True
+            self.listener.start()
 
     def stop(self):
-        if self.listener:
-            self.listener.stop()
-            try:
-                joined = self.listener.join(timeout=1.0)
-            except Exception:
-                joined = False
-            # 只在 listener 实际退出后才清空引用，避免与 start() 竞争
-            if joined and not self.listener.is_alive():
-                self.listener = None
-        # 通知工作线程退出
-        if self._worker is not None and self._worker.is_alive():
-            self._task_queue.put(_STOP)
-            self._worker.join(timeout=2.0)
-            self._worker = None
+        with self._life_lock:
+            if threading.current_thread() is self._worker:
+                # v5.11：worker 线程内调用 stop 时不能 join 自身（会 RuntimeError），
+                # 只递增代数并投递哨兵，让本线程在下次循环退出
+                self._gen += 1
+                self._task_queue.put(_STOP)
+                return
+            if self.listener:
+                self.listener.stop()
+                try:
+                    joined = self.listener.join(timeout=1.0)
+                except Exception:
+                    joined = False
+                # 只在 listener 实际退出后才清空引用，避免与 start() 竞争
+                if joined and not self.listener.is_alive():
+                    self.listener = None
+            # 通知工作线程退出
+            if self._worker is not None and self._worker.is_alive():
+                self._gen += 1  # 残留线程（若 join 超时）下次循环即退出，不会消费新队列
+                self._task_queue.put(_STOP)
+                self._worker.join(timeout=2.0)
+                if not self._worker.is_alive():
+                    self._worker = None
 
-    def _run_worker(self):
-        """工作线程：从队列取请求并串行执行 on_toggle()，避免阻塞 pynput 监听线程。"""
+    def _run_worker(self, task_queue, gen):
+        """工作线程：只消费启动时绑定的队列；代数变化（stop/start）后立即退出。"""
         while True:
+            if gen != self._gen:
+                break
             try:
-                item = self._task_queue.get(timeout=1.0)
+                item = task_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
             if item is _STOP:
@@ -97,8 +115,9 @@ class HotkeyListener:
             if now - self._last_time < _DEBOUNCE_SEC:
                 return
             self._last_time = now
-        # 派发到工作线程，绝不阻塞 pynput 监听线程
+        # 派发到工作线程，绝不阻塞 pynput 监听线程。
+        # v5.11：有界队列（maxsize=16）背压生效——满则丢弃本次，避免阻塞监听线程
         try:
             self._task_queue.put_nowait(key)
         except queue.Full:
-            pass  # 极端情况：队列满则丢弃，避免阻塞监听线程
+            pass

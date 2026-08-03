@@ -129,6 +129,11 @@ def _load_config() -> tuple[dict | None, str | None]:
     except json.JSONDecodeError as e:
         return None, f"{config_path} JSON 解析失败: {e}"
 
+    if not isinstance(data, dict):
+        # v5.11：顶层为数组/字符串/布尔时，后续 .get() 会抛 AttributeError
+        # 并被 run() 的通用兜底吞掉，掩盖真实原因；这里直接给出可读诊断
+        return None, f"{config_path} 顶层应为 JSON 对象，实际为 {type(data).__name__}"
+
     return data, None
 
 
@@ -221,6 +226,8 @@ def _check_gpu() -> tuple[str, bool, str]:
             ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",  # v5.11：避免 GBK 控制台下解码 nvidia-smi 输出抛异常
             timeout=15,
         )
     except FileNotFoundError:

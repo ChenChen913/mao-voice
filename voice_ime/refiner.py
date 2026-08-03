@@ -1,4 +1,5 @@
 ﻿"""LLM 后处理：DeepSeek（OpenAI 兼容接口），保守纠错 + 三档强度，带超时重试。"""
+import logging
 import time
 
 import requests
@@ -84,7 +85,19 @@ class Refiner:
                     content = data["choices"][0]["message"]["content"]
                 except (KeyError, IndexError, TypeError):
                     return raw_text
-                result = (content or "").strip()
+                if not isinstance(content, str):
+                    # v5.11：模型返回非字符串内容（数组/对象等）时保守回退原文，
+                    # 避免 .strip() 抛 AttributeError 击穿整个重试/回退链路
+                    return raw_text
+                result = content.strip()
+                # v5.11：finish_reason=length 说明输出被 max_tokens 截断，记日志便于诊断
+                try:
+                    if data["choices"][0].get("finish_reason") == "length":
+                        logging.getLogger(__name__).warning(
+                            "润色输出疑似被 max_tokens 截断（finish_reason=length）"
+                        )
+                except (KeyError, IndexError, TypeError, AttributeError):
+                    pass
                 # LLM 返回空/纯空白：保守回退原文——本管线承诺"绝不删除事实内容"，
                 # 空结果会静默丢掉全部说话文本
                 return result if result else raw_text
@@ -93,7 +106,8 @@ class Refiner:
                 # 错误，重试无意义（只会白等 RETRY_DELAY_SEC 并持续打端点），
                 # 立即抛出让调用方看到真实配置问题；仅 5xx 服务端错误按可重试处理
                 status = e.response.status_code if e.response is not None else None
-                if status is not None and 400 <= status < 500:
+                # v5.11：408/429 是瞬时超时/限流，与 5xx 一样可重试
+                if status is not None and 400 <= status < 500 and status not in (408, 429):
                     raise
                 last_err = e
                 if attempt < MAX_ATTEMPTS:

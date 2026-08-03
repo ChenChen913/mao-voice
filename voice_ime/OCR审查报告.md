@@ -82,3 +82,45 @@
 （死代码、docstring 与实际不符、魔法数字、理论性线程安全、未使用变量等），无功能性缺陷。
 注：LLM 评审器在每轮代码变动后都会产生新的 low/medium 项，总量在 28~38 之间波动，
 继续迭代呈边际收益递减；如需清零，可再派 Agent 处理 medium/low 项（预计 $5~8，且可能产生新打磨项）。
+
+---
+
+## 2026-08-03 追加：v5.11 复审记录（第 9~11 轮，阿里 open-code-review 1.8.5 / DeepSeek）
+
+项目完成 v5.1~v5.10 交互迭代与整理后，再次全量扫描（排除 models/tests/缓存/文档/二进制），
+共 3 轮：初扫 → 修复 → 复扫 → 再修复 → 终扫。
+
+| 轮次 | 触发 | 总评论 | critical | high | security |
+| --- | --- | --- | --- | --- | --- |
+| 第 9 轮 | v5.10 后全量初扫 | 34 | 0 | 2 | 2（medium） |
+| 第 10 轮 | 修复后复扫 | 35 | 0 | 1 | 1（medium） |
+| 第 11 轮 | 修复后终扫 | 40 | 0 | 4 | 2（medium/low） |
+
+### 已修复的 high 问题（3 轮合计 7 个）
+
+1. **refiner.py**：模型返回非字符串 `content` 时 `.strip()` 抛 AttributeError → 增加类型校验，非字符串保守回退原文；
+2. **asr.py**：GPU 推理失败回退时 `self.model = None` 与并发转写形成竞态 → 锁内先构造 CPU 模型再整体替换，绝无 None 窗口；新增 `_gpu_disabled` 防止回退后再试 GPU；
+3. **safe_inject.py**：`GlobalAlloc/GlobalLock` 失败路径只释放备份、不还原，用户剪贴板数据永久丢失 → 新增 `_put_back_saved()` 放回原内容；
+4. **asr.py**：词库读取中途失败后重试会重复追加词条 → 改为局部列表、全部成功后整体替换；
+5. **config.py**：词库文件写入失败导致启动崩溃 → 捕获并记日志，按空词库继续；
+6. **main.py**：快速双击时 recorder 可能为 None 或未启动 → recorder 在状态机同一临界区创建，`_finish_recording` 增加 `active` 守卫；
+7. **tests/target_window.py**：上次残留 result.txt 被误读为本次结果 → 启动时清理。
+
+### 已修复的 medium 项（代表性）
+
+- hotkey：工作线程代数化（stop/start 竞态、自 join 守卫）、有界队列背压、防抖窗口清零；
+- config：原子写入失败清理 .tmp；ensure_defaults 容错；
+- doctor：配置顶层类型校验、nvidia-smi 输出 UTF-8 解码；
+- refiner：408/429 限流按可重试处理、finish_reason=length 截断告警；
+- recorder：`_draft_busy` check-then-act 原子化、epoch 锁内读取、RMS 计算移出 VAD 锁、末频带包含 8kHz、汉宁窗缓存、stream 启动失败清理；
+- cloud_asr：错误信息 URL 脱敏、响应体截断；
+- orchestrate：stderr 结果误识别、OSError 兜底、--only 空匹配提示、工作目录越界校验；
+- ui：窗口销毁后 after 守卫、演示波形补 set_speaking、进入状态电平归零；
+- .gitignore：`.env*`/密钥文件模式、注释；
+- safe_inject：`SetClipboardData` 失败路径复用放回助手、清理冗余导入/常量。
+
+### 终态结论
+
+3 轮共报告 109 条评论，其中 7 个 high 已全部修复；终扫残留以 medium/low 打磨项为主
+（死代码、理论性线程安全、文档措辞、测试脚本健壮性），无功能性缺陷。
+符合历史规律：LLM 评审器在修复后会产生新的 low/medium 项，边际收益递减，故本轮到此为止。

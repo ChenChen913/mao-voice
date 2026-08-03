@@ -24,6 +24,9 @@ def plan_transition(old: str, new: str, duration: float = 0.3) -> list[tuple[str
     返回：
         [(文本, 秒数), ...]  按播放顺序排列的帧序列。
     """
+    if duration <= 0:
+        duration = 0.3  # v5.11：非法/零时长钳制为默认值，避免负停留时间
+
     # ── 边界情况：任一为空或二者完全相同 ──
     # 这类情况下不需要做过渡动画，直接显示目标文本即可。
     if not old and not new:
@@ -38,7 +41,9 @@ def plan_transition(old: str, new: str, duration: float = 0.3) -> list[tuple[str
     # ── 核心算法：用 SequenceMatcher 找公共前缀/后缀 ──
     # SequenceMatcher.get_matching_blocks() 返回所有匹配子序列，
     # 第一个块若起点为 (0,0) 即公共前缀，最后一个块若延伸到末尾即公共后缀。
-    sm = difflib.SequenceMatcher(None, old, new)
+    # v5.11：autojunk=False，避免长文本中高频重复字符被 difflib 当作 junk
+    # 而漏掉真实公共前后缀（影响过渡帧判定）
+    sm = difflib.SequenceMatcher(None, old, new, autojunk=False)
     blocks = sm.get_matching_blocks()  # 最后一个块是哨兵 (len(a), len(b), 0)
 
     # 公共前缀：从位置 0 开始的最长连续匹配
@@ -111,7 +116,7 @@ if __name__ == "__main__":
             bar = "█" * int(dur * 100)
             print(f"  帧{i}: {txt!r}  ({dur:.2f}s) {bar}")
         assert frames[-1][0] == new, f"末帧应为 new 而实际为 {frames[-1][0]!r}"
-        assert 1 <= len(frames) <= 4, f"帧数应为 1~4 而实际为 {len(frames)}"
+        assert 1 <= len(frames) <= 3, f"帧数应为 1~3 而实际为 {len(frames)}"
         assert abs(total - 0.3) < 1e-9, f"总时长应为 0.3 而实际为 {total}"
         print("  ✓ 通过\n")
 

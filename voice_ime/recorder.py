@@ -44,6 +44,7 @@ class Recorder:
         self._epoch = 0                   # 会话代数：stop() 递增使残留的旧 draft 循环立即退出
         self._speaking_fast = False       # 快速说话指示：音频回调线程逐帧更新，主线程只读
         self._last_bands = None           # 最近一帧的频带电平（0~1 形状）：回调线程写，主线程只读
+        self._win_cache = {}              # 汉宁窗缓存（按帧长）：避免每帧重复生成
         self.vad = VAD()
 
     def start(self):
@@ -58,12 +59,24 @@ class Recorder:
         self._stop_draft.clear()
         self._draft_done.clear()
         self.vad.reset()
-        self._stream = sd.InputStream(
+        stream = sd.InputStream(
             samplerate=self.samplerate, channels=1, dtype="float32",
             blocksize=320,  # 20ms/帧：频谱与波形更新更细腻（原默认块可能达 100~200ms）
             callback=self._callback,
         )
-        self._stream.start()
+        with self._lock:
+            self._stream = stream
+        try:
+            stream.start()
+        except Exception:
+            # v5.11：设备被占用/不可用时清理已创建的流，避免泄漏
+            with self._lock:
+                self._stream = None
+            try:
+                stream.close()
+            except Exception:
+                pass
+            raise
         if self.on_draft:
             self._draft_thread = threading.Thread(
                 target=self._draft_loop, args=(epoch,), daemon=True
@@ -79,21 +92,25 @@ class Recorder:
             self.vad.process(indata.flatten())
         except Exception:
             logging.exception("VAD.process 异常（已忽略，不影响录音）")
-        # 每帧计算一次 RMS 电平（帧长约 20ms），归一化后：
-        # 1) 更新快速说话指示（双阈值滞回，驱动声波显示，响应快于 VAD 去抖）；
-        # 2) 回调给主线程驱动波形高度。
-        # 回调抛异常必须静默吞掉，绝不影响录音主流程（同样记日志便于排查）
+        # 每帧计算一次 RMS 电平（帧长约 20ms），归一化后更新快速说话指示。
+        # v5.11：RMS 计算与 on_level 回调分开 try，失败来源不再混淆；
+        # 回调抛异常必须静默吞掉，绝不影响录音主流程
         try:
             rms = float(np.sqrt(np.mean(indata ** 2)))
             rms_01 = min(rms / self.RMS_NORMALIZE, 1.0)
+        except Exception:
+            logging.exception("RMS 计算异常（已忽略，不影响录音）")
+            rms_01 = None
+        if rms_01 is not None:
             if rms_01 >= Recorder.SPEAK_ON_RMS_01:
                 self._speaking_fast = True
             elif rms_01 <= Recorder.SPEAK_OFF_RMS_01:
                 self._speaking_fast = False
             if self.on_level:
-                self.on_level(rms_01)
-        except Exception:
-            logging.exception("on_level 回调异常（已忽略，不影响录音）")
+                try:
+                    self.on_level(rms_01)
+                except Exception:
+                    logging.exception("on_level 回调异常（已忽略，不影响录音）")
         # 每帧计算频带电平（FFT）：失败不影响录音主流程
         try:
             bands = self._compute_bands(indata)
@@ -113,13 +130,21 @@ class Recorder:
         if n < 64:
             return None
         x = x - float(np.mean(x))  # 去直流，避免低频假能量
-        win = np.hanning(n).astype(np.float32)  # 加窗减少频谱泄漏
+        win = self._win_cache.get(n)
+        if win is None:
+            win = np.hanning(n).astype(np.float32)  # 加窗减少频谱泄漏
+            self._win_cache[n] = win
         spec = np.abs(np.fft.rfft((x * win).astype(np.float32)))
         freqs = np.fft.rfftfreq(n, 1.0 / self.samplerate)
         edges = np.geomspace(80.0, 8000.0, self.SPECTRUM_BANDS + 1)
         levels = np.empty(self.SPECTRUM_BANDS, dtype=np.float32)
         for i in range(self.SPECTRUM_BANDS):
-            mask = (freqs >= edges[i]) & (freqs < edges[i + 1])
+            # v5.11：末频带包含 8kHz 端点（rfftfreq 末 bin 恰为 sr/2），
+            # 避免最高频 bin 因 `freqs < 8000` 被漏掉
+            if i == self.SPECTRUM_BANDS - 1:
+                mask = (freqs >= edges[i]) & (freqs <= edges[i + 1])
+            else:
+                mask = (freqs >= edges[i]) & (freqs < edges[i + 1])
             idx = np.flatnonzero(mask)
             levels[i] = float(np.mean(spec[idx])) if idx.size else 0.0
         peak = float(levels.max())
@@ -132,34 +157,36 @@ class Recorder:
         chunk_samples = int(self.chunk_sec * self.samplerate)
         try:
             while not self._stop_draft.is_set():
-                # 已被更新的会话取代（stop() 的 join 超时后旧循环残留）→ 立即退出，
-                # 绝不与新一轮 draft 循环并发（epoch 检查比 _draft_busy 更可靠）
-                if epoch != self._epoch:
-                    break
                 with self._lock:
-                    busy = self._draft_busy
-                if not busy:
-                    with self._lock:
+                    # 会话代数变更（stop/start）后残留线程立即退出（锁内读取，避免数据竞争）
+                    if epoch != self._epoch:
+                        break
+                    if self._draft_busy:
+                        busy, take = True, False
+                    else:
+                        busy, take = False, False
                         total = sum(c.shape[0] for c in self._chunks)
-                    if total - self._offset_samples >= chunk_samples:
+                        if total - self._offset_samples >= chunk_samples:
+                            # 检查与置位在同一锁内完成：杜绝 check-then-act 竞态
+                            self._draft_busy = True
+                            take = True
+                if not busy and take:
+                    try:
+                        data = self._snapshot_from_offset(epoch)
+                        if data.size > 0 and self.on_draft:
+                            try:
+                                self.on_draft(data)
+                            except Exception:
+                                # 与 _callback 同款设计原则：后台回调异常必须
+                                # 记日志且绝不能杀死录音循环——原实现会让
+                                # 异常从 _draft_loop 逸出、线程静默终止，
+                                # 本会话余下时间的增量草稿全部失效
+                                logging.exception(
+                                    "on_draft 回调异常（本轮草稿已跳过，不影响后续）"
+                                )
+                    finally:
                         with self._lock:
-                            self._draft_busy = True  # 锁下读写：跨循环串行化快照/回调段
-                        try:
-                            data = self._snapshot_from_offset(epoch)
-                            if data.size > 0 and self.on_draft:
-                                try:
-                                    self.on_draft(data)
-                                except Exception:
-                                    # 与 _callback 同款设计原则：后台回调异常必须
-                                    # 记日志且绝不能杀死录音循环——原实现会让
-                                    # 异常从 _draft_loop 逸出、线程静默终止，
-                                    # 本会话余下时间的增量草稿全部失效
-                                    logging.exception(
-                                        "on_draft 回调异常（本轮草稿已跳过，不影响后续）"
-                                    )
-                        finally:
-                            with self._lock:
-                                self._draft_busy = False
+                            self._draft_busy = False
                 time.sleep(0.3)
         finally:
             # 线程真正退出才置位：stop() 的 join 超时后靠它确认 in-flight 工作
@@ -192,6 +219,7 @@ class Recorder:
         if self._stream:
             self._stream.stop()
             self._stream.close()
+        with self._lock:
             self._stream = None
         self._stop_draft.set()
         # v5.5：不再等待草稿线程退出。原实现 join(≤2s) 会卡在 in-flight 的
@@ -216,6 +244,16 @@ class Recorder:
         说话立即亮波形、停口立即灭波形（约 1 帧延迟）。
         """
         return self._speaking_fast
+
+    @property
+    def active(self):
+        """录音流是否开启（start() 之后、stop() 之前为 True）。
+
+        用于主线程轮询守卫：状态机已切到 RECORDING 但新 Recorder 尚未创建时，
+        避免对上一会话已停止的 recorder 误触发静音自动停止（v5.11）。
+        """
+        with self._lock:
+            return self._stream is not None
 
     @property
     def bands_now(self):

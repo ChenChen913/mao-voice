@@ -185,11 +185,21 @@ class Overlay:
 
     def show(self, state, text=''):
         """显示悬浮窗（可从任意线程安全调用）。"""
-        self._root.after(0, self._show_impl, state, text)
+        if self._root is None:
+            return  # v5.11：窗口已销毁后不再调度
+        try:
+            self._root.after(0, self._show_impl, state, text)
+        except Exception:
+            pass  # v5.11：销毁竞态窗口下 after 可能抛错，忽略
 
     def hide(self):
         """隐藏悬浮窗（可从任意线程安全调用）。"""
-        self._root.after(0, self._hide_impl)
+        if self._root is None:
+            return  # v5.11：窗口已销毁后不再调度
+        try:
+            self._root.after(0, self._hide_impl)
+        except Exception:
+            pass  # v5.11：销毁竞态窗口下 after 可能抛错，忽略
 
     def set_level(self, rms):
         """外部传入音频 RMS 值（0~1 归一化范围），驱动波形跳动。
@@ -207,7 +217,8 @@ class Overlay:
         只显示"录音中"提示文案，让用户直观感知"我正在说话"。
         可从任意线程安全调用（bool 赋值在 CPython GIL 下是原子的）。
         """
-        self._speaking = bool(speaking)
+        if self._root is not None:  # v5.11：窗口销毁后忽略
+            self._speaking = bool(speaking)
 
     def set_levels(self, levels):
         """外部传入频带电平（0~1 形状，长度与竖条数一致或更长），驱动多频段波形。
@@ -215,7 +226,8 @@ class Overlay:
         波形形状随音调/语气变化（音乐播放器式）；无频带数据时传 None，
         回退为 RMS 均匀波形。仅主线程调用。
         """
-        self._levels = list(levels) if levels else None
+        if self._root is not None:  # v5.11：窗口销毁后忽略
+            self._levels = list(levels) if levels else None
 
     # ═══════════════════════════════════════════════════════════════
     # 内部实现（必须在 Tk 主线程调用）
@@ -228,6 +240,7 @@ class Overlay:
         self._active = True
         self._state = state
         self._text = text
+        self._rms = 0.0            # v5.11：进入状态时电平归零，避免残留旧波形高度
         self._smooth_rms = 0.0   # 每次 show 重置平滑值
         self._speaking = False   # 每次进入状态重置说话标记，等待 VAD 重新上报
         self._levels = None      # 重置频带，等待主线程轮询重新上报
@@ -509,6 +522,7 @@ if __name__ == '__main__':
         """模拟完整工作流：录音 → 各状态 → 再次录音（验证无错位）。"""
         # ── 阶段 1：录音，随机 RMS 驱动波形约 5 秒 ──
         overlay.show('RECORDING')
+        overlay.set_speaking(True)  # v5.11：演示时模拟说话状态，波形才会律动
         start = time.time()
         while time.time() - start < 5:
             rms = random.uniform(0.1, 0.9)  # 模拟说话
@@ -531,6 +545,7 @@ if __name__ == '__main__':
 
         # ── 阶段 3：再次录音，验证连续切换无错位 ──
         overlay.show('RECORDING')
+        overlay.set_speaking(True)  # v5.11：演示时模拟说话状态，波形才会律动
         start = time.time()
         while time.time() - start < 4:
             rms = random.uniform(0.1, 0.95)

@@ -15,6 +15,7 @@ transcribe 接收 16kHz float32 mono numpy 数组，内部转成标准 WAV 字�
 
 import io
 import wave
+from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
 import requests
@@ -24,6 +25,12 @@ _WAV_FILENAME = "audio.wav"
 _WAV_MIME = "audio/wav"
 # 请求超时（秒）：云端网络不稳定，给足时间避免误判失败
 _REQUEST_TIMEOUT = 120.0
+
+
+def _safe_url(url: str) -> str:
+    """去掉 URL 的 query/userinfo，避免错误信息泄露潜在凭证（v5.11）。"""
+    p = urlsplit(url)
+    return urlunsplit((p.scheme, p.netloc, p.path, "", ""))
 
 
 class CloudASREngine:
@@ -121,11 +128,11 @@ class CloudASREngine:
                 url, headers=headers, files=files, data=data, timeout=_REQUEST_TIMEOUT
             )
         except requests.RequestException as e:
-            raise RuntimeError(f"请求云端 ASR 端点失败（{url}）：{e}") from e
+            raise RuntimeError(f"请求云端 ASR 端点失败（{_safe_url(url)}）：{e}") from e
 
         if not (200 <= resp.status_code < 300):
             raise RuntimeError(
-                f"云端 ASR 端点返回非 2xx 状态码 {resp.status_code}（{url}）："
+                f"云端 ASR 端点返回非 2xx 状态码 {resp.status_code}（{_safe_url(url)}）："
                 f"{resp.text[:500]}"
             )
 
@@ -134,19 +141,19 @@ class CloudASREngine:
             payload = resp.json()
         except ValueError as e:
             raise RuntimeError(
-                f"解析云端 ASR 响应 JSON 失败（{url}）：{e}；原始响应：{resp.text[:500]}"
+                f"解析云端 ASR 响应 JSON 失败（{_safe_url(url)}）：{e}；原始响应：{resp.text[:500]}"
             ) from e
         try:
             text = payload.get("text")
         except AttributeError as e:
             raise RuntimeError(
-                f"云端 ASR 响应 JSON 解析成功但结果不是对象（{url}）：{type(payload).__name__}；"
+                f"云端 ASR 响应 JSON 解析成功但结果不是对象（{_safe_url(url)}）：{type(payload).__name__}；"
                 f"原始响应：{resp.text[:500]}"
             ) from e
 
         if not isinstance(text, str) or not text.strip():
             raise RuntimeError(
-                f"云端 ASR 响应缺少非空 text 字段（{url}）：{payload}"
+                f"云端 ASR 响应缺少非空 text 字段（{_safe_url(url)}）：{str(payload)[:300]}"
             )
         return text
 

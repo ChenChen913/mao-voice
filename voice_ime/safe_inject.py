@@ -15,7 +15,6 @@
 import ctypes
 import ctypes.wintypes as wintypes
 import time
-from ctypes import wintypes
 
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
@@ -55,7 +54,6 @@ TokenElevationTypeLimited = 3   # 受限令牌（UAC 下普通用户）
 
 # -- 错误码 --
 ERROR_ACCESS_DENIED = 5
-ERROR_INVALID_HANDLE = 6
 
 # -- 复制图像标志 --
 IMAGE_BITMAP = 0
@@ -260,6 +258,25 @@ def _free_saved_clipboard(
             gdi32.DeleteObject(handle)
         else:
             kernel32.GlobalFree(handle)
+
+
+def _put_back_saved(saved: list[tuple[int, wintypes.HANDLE]]) -> None:
+    """把已保存的剪贴板格式放回当前已打开的剪贴板（v5.11）。
+
+    用于"EmptyClipboard 已清空原剪贴板、但后续设置失败"的错误路径：
+    必须把备份格式放回去，否则用户原始剪贴板数据永久丢失。
+    SetClipboardData 成功的句柄所有权转给系统，失败的释放。
+    """
+    remaining = []
+    for fmt, handle in saved:
+        if not user32.SetClipboardData(fmt, handle):
+            remaining.append((fmt, handle))
+    for fmt, handle in remaining:
+        if fmt == CF_BITMAP:
+            gdi32.DeleteObject(handle)
+        else:
+            kernel32.GlobalFree(handle)
+    saved.clear()
 
 
 def _save_all_clipboard_formats() -> tuple[
@@ -524,15 +541,16 @@ def inject(text: str) -> tuple[bool, str]:
         text_size = len(text_bytes)
         htext = kernel32.GlobalAlloc(GMEM_MOVEABLE, text_size)
         if not htext:
-            _free_saved_clipboard(saved)
-            return False, "分配剪贴板内存失败"
+            # 剪贴板已被 EmptyClipboard 清空：先放回原内容再失败，防止用户数据丢失
+            _put_back_saved(saved)
+            return False, "分配剪贴板内存失败，原内容已放回"
 
         ptr = kernel32.GlobalLock(htext)
         if not ptr:
             # GlobalLock 失败（内存不足等）：句柄仍归我们，需释放并还原已保存内容
             kernel32.GlobalFree(htext)
-            _free_saved_clipboard(saved)
-            return False, "锁定剪贴板内存失败"
+            _put_back_saved(saved)
+            return False, "锁定剪贴板内存失败，原内容已放回"
         ctypes.memmove(ptr, text_bytes, text_size)
         kernel32.GlobalUnlock(htext)
 
@@ -540,16 +558,7 @@ def inject(text: str) -> tuple[bool, str]:
             kernel32.GlobalFree(htext)
             # EmptyClipboard 已清空原剪贴板，必须把保存的内容放回，否则用户数据丢失
             user32.EmptyClipboard()
-            remaining = []
-            for fmt, handle in saved:
-                if not user32.SetClipboardData(fmt, handle):
-                    remaining.append((fmt, handle))
-            for fmt, handle in remaining:
-                if fmt == CF_BITMAP:
-                    gdi32.DeleteObject(handle)
-                else:
-                    kernel32.GlobalFree(handle)
-            saved.clear()  # 放回成功的句柄已归系统，失败者已释放，调用方不得再处理
+            _put_back_saved(saved)
             return False, "设置剪贴板数据失败，已尝试还原原内容"
 
         # 记录设置文本后的序列号，用于恢复阶段比对

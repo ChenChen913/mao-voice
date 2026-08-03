@@ -3,6 +3,11 @@ voice_ime/models/
 
 # ---- sensitive config (contains API key) ----
 voice_ime/config.json
+.env
+.env*
+*.key
+*.pem
+*.secret
 
 # ---- agent workspaces and results ----
 voice_ime/tasks/
