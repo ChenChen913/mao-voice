@@ -19,6 +19,7 @@
 """
 
 import threading
+import sys
 
 import numpy as np
 
@@ -235,6 +236,8 @@ class VAD:
 # 冒烟测试
 # ===================================================================
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # v5.13.6：GBK 控制台兼容
     sr = SAMPLE_RATE
     vad = VAD()
 

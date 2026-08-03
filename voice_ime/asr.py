@@ -374,6 +374,8 @@ class WhisperEngine:
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # v5.13.6：GBK 控制台兼容
     # 快速自检（不加载模型、不联网）：打印当前转写参数与词库热词拼装结果，验证归一化逻辑
     engine = WhisperEngine()
     prompt = engine._initial_prompt_text()

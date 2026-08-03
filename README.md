@@ -24,6 +24,7 @@ mao-voice/
 │   ├── hotkey.py / recorder.py / asr.py / refiner.py
 │   ├── safe_inject.py / ui.py / vad.py / draft_smoother.py
 │   ├── cloud_asr.py / doctor.py / orchestrate.py
+│   ├── settings_ui.py / history.py / download_model.py
 │   ├── 词库.txt / 启动.bat / requirements.txt
 │   ├── models/                      # 模型（不入库，见部署文档 §5.5）
 │   ├── tasks/ results/              # 编排工具按需生成的历史工作区/结果（不入库）
@@ -38,7 +39,7 @@ mao-voice/
 cd voice_ime
 pip install -r requirements.txt
 copy config.example.json config.json   # 编辑填入 DeepSeek API Key
-# 下载模型到 models/（详见部署文档 §5.5）
+python download_model.py               # 一键下载模型（也可手动，详见部署文档 §5.5）
 python doctor.py                        # 环境自检，全部 ✅ 后运行
 python main.py                          # 或双击 启动.bat
 ```
@@ -156,8 +157,8 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 
 ## 路线图
 
-- **P1 补全**：润色强度运行时切换（F9）、输入历史记录（F12）
-- **工程化**：pytest 单测 + GitHub Actions CI、一键模型下载脚本（ModelScope）、托盘图标 + 设置窗口、PyInstaller 打包 Release
+- **P1 补全**：✅ 润色强度运行时切换（F9）、✅ 输入历史记录（F12，设置窗口可查看）
+- **工程化**：✅ pytest 单测 + GitHub Actions CI、✅ 一键模型下载脚本（ModelScope）、✅ 托盘图标 + 设置窗口、⏳ PyInstaller 打包 Release
 - **差异化**：自学习纠错引擎（越用越像你）、语音编辑指令、悬浮条右键菜单 + 声音反馈
 - **云端兜底**：`cloud_asr.py` 已就绪，待接入 OpenAI 兼容端点实测（当前未验证）
 - **跨平台**：翻译/人设模式、macOS 版（`提示词.txt` Swift 方案）
@@ -169,7 +170,7 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 ## 更新记录
 
 <details>
-<summary>📜 点击展开 / 收起版本记录（v2 ~ v5.12）</summary>
+<summary>📜 点击展开 / 收起版本记录（v2 ~ v5.13）</summary>
 
 <!-- 新增版本请继续追加到本折叠区内，保持旧版本在上、新版本在下 -->
 
@@ -196,6 +197,12 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 - **v5.10 文档体验**：README 版本记录改为 GitHub 可折叠展示（默认收起、点击展开），后续版本持续追加到折叠区内
 - **v5.11 阿里代码审查与修复**：使用 open-code-review（第 9~11 轮，DeepSeek 评审）全量扫描，修复 7 个 high——refiner 非字符串内容崩溃、ASR 并发换模型竞态、剪贴板分配失败数据丢失、词库重试重复、词库写入崩溃、快速双击 recorder 竞态、测试残留误读；另修复 20+ 项 medium（热键生命周期/有界队列、配置容错、VAD 锁外计算、错误信息脱敏等），详见 `voice_ime/OCR审查报告.md`
 - **v5.12 文档补充**：README 新增"路线图"章节（P1 补全/工程化/差异化/云端兜底/跨平台）；项目审核报告新增 §8.4（云端 ASR 实测待办、OCR 残留清理清单、工程化与差异化两条推进路线）
+- **v5.13.1 单测与 CI**：新增 pytest 单元测试套件（VAD/draft_smoother/refiner/config/hotkey/recorder/cloud_asr/safe_inject/ui，42 项全部通过）；新增 GitHub Actions CI（push/PR 触发，Windows + Python 3.12/3.13，跑 compileall + pytest）
+- **v5.13.2 一键模型下载**：新增 `download_model.py`（ModelScope 默认/HF 备用，small/medium，支持断点跳过与 --dry-run），下载后自动更新 config.json 模型路径
+- **v5.13.3 润色强度运行时切换**：按 F9 循环切换 保守纠错/轻度规整/完整规整，悬浮窗短暂提示并持久化配置
+- **v5.13.4 输入历史记录**：新增 `history.py`（内存队列 + history.json 落盘），成功注入后自动记录，设置窗口可查看/清空
+- **v5.13.5 托盘图标 + 设置窗口**：pystray 托盘（开始/停止、打开设置、退出，状态实时更新）；设置窗口五页签（通用/模型/LLM/词库/历史），支持麦克风设备选择与一键下载模型；F8 打开设置
+- **v5.13.6 小修清单**：doctor 拒绝组合键（与单键实现对齐）；各模块自检适配 GBK 控制台；相对模型路径基于 voice_ime 解析；API Key 支持 DEEPSEEK_API_KEY 环境变量兜底
 
 </details>
 

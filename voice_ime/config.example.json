@@ -1,5 +1,7 @@
 {
   "hotkey": "alt_r",
+  "refine_cycle_hotkey": "f9",
+  "settings_hotkey": "f8",
   "asr": {
     "engine": "whisper",
     "model": "models/faster-whisper-medium",
@@ -11,7 +13,12 @@
     }
   },
   "recorder": {
-    "auto_stop_silence_sec": 0
+    "auto_stop_silence_sec": 0,
+    "device": ""
+  },
+  "history": {
+    "enabled": true,
+    "max_entries": 100
   },
   "refine": {
     "enabled": true,

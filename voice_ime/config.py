@@ -10,6 +10,10 @@ WORDS_PATH = os.path.join(BASE_DIR, "词库.txt")
 DEFAULT_CONFIG = {
     # toggle 模式热键：按一下开始录音，再按一下结束（改用右 Alt 解放双手，无需按住）
     "hotkey": "alt_r",
+    # v5.13.3：润色强度运行时循环切换热键（conservative → light → polish）
+    "refine_cycle_hotkey": "f9",
+    # v5.13.5：打开设置窗口热键
+    "settings_hotkey": "f8",
     "asr": {
         "engine": "whisper",
         # 默认 small（约 460MB）：medium(约 1.5GB) 首次运行才下载，网络慢时长时间无响应；
@@ -18,7 +22,9 @@ DEFAULT_CONFIG = {
         "language": "zh",
         "cloud": {"base_url": "", "api_key": "", "model": "whisper-1"},
     },
-    "recorder": {"auto_stop_silence_sec": 0},
+    "recorder": {"auto_stop_silence_sec": 0, "device": ""},
+    # v5.13.4：输入历史记录（内存队列 + JSON 落盘）
+    "history": {"enabled": True, "max_entries": 100},
     "refine": {
         "enabled": True,
         "base_url": "https://api.deepseek.com/v1",
@@ -42,6 +48,17 @@ def load_config(path=CONFIG_PATH):
             # 原实现静默回退默认配置：损坏的配置文件会让用户误以为设置仍生效。
             # 至少记日志暴露失败，避免"配置被悄悄重置"无从察觉
             logging.warning("配置文件 %s 读取/解析失败，已回退默认配置：%s", path, e, exc_info=True)
+    # v5.13.6：相对模型路径基于 voice_ime/ 解析（移动项目/任意 CWD 启动都不失效）
+    model = cfg.get("asr", {}).get("model") or ""
+    if model and not os.path.isabs(model) and ("/" in model or "\\" in model or model.startswith(".")):
+        cfg["asr"]["model"] = os.path.normpath(os.path.join(BASE_DIR, model))
+    # v5.13.6：API Key 支持环境变量兜底（config 留空时读取）
+    refine = cfg.get("refine")
+    if isinstance(refine, dict) and not refine.get("api_key"):
+        refine["api_key"] = os.environ.get("DEEPSEEK_API_KEY", "")
+    cloud = cfg.get("asr", {}).get("cloud")
+    if isinstance(cloud, dict) and not cloud.get("api_key"):
+        cloud["api_key"] = os.environ.get("ASR_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "")
     return cfg
 
 

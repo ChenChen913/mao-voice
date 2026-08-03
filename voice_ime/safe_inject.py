@@ -14,6 +14,7 @@
 
 import ctypes
 import ctypes.wintypes as wintypes
+import sys
 import time
 
 from pynput.keyboard import Controller as KeyboardController
@@ -628,6 +629,8 @@ def inject(text: str) -> tuple[bool, str]:
 # ============================================================================
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # v5.13.6：GBK 控制台兼容
     print("safe_inject 冒烟测试")
     print("=" * 40)
 

@@ -8,6 +8,7 @@
 """
 
 import difflib
+import sys
 
 
 def plan_transition(old: str, new: str, duration: float = 0.3) -> list[tuple[str, float]]:
@@ -107,6 +108,9 @@ def plan_transition(old: str, new: str, duration: float = 0.3) -> list[tuple[str
 
 # ── 冒烟测试 ──
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # v5.13.6：GBK 控制台兼容
+
     def _test(old, new, desc=""):
         frames = plan_transition(old, new, duration=0.3)
         total = sum(f[1] for f in frames)

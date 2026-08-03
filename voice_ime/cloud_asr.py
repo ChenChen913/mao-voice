@@ -14,6 +14,7 @@ transcribe 接收 16kHz float32 mono numpy 数组，内部转成标准 WAV 字�
 """
 
 import io
+import sys
 import wave
 from urllib.parse import urlsplit, urlunsplit
 
@@ -28,9 +29,12 @@ _REQUEST_TIMEOUT = 120.0
 
 
 def _safe_url(url: str) -> str:
-    """去掉 URL 的 query/userinfo，避免错误信息泄露潜在凭证（v5.11）。"""
+    """去掉 URL 的 query 与 userinfo（含端口重建），避免错误信息泄露潜在凭证。"""
     p = urlsplit(url)
-    return urlunsplit((p.scheme, p.netloc, p.path, "", ""))
+    host = p.hostname or ""
+    if p.port:
+        host = f"{host}:{p.port}"
+    return urlunsplit((p.scheme, host, p.path, "", ""))
 
 
 class CloudASREngine:
@@ -159,6 +163,8 @@ class CloudASREngine:
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # v5.13.6：GBK 控制台兼容
     # 冒烟测试：不依赖真实网络，验证 WAV 编码与无 key 报错逻辑
     sr = 16000
     t = np.linspace(0, 0.5, int(sr * 0.5), endpoint=False)

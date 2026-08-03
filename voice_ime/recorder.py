@@ -27,8 +27,9 @@ class Recorder:
     # 多频段波形——音调/语气不同，各频段能量不同，波形形状随之变化。
     SPECTRUM_BANDS = 15
 
-    def __init__(self, samplerate=16000, on_draft=None, on_level=None, chunk_sec=2.0):
+    def __init__(self, samplerate=16000, on_draft=None, on_level=None, chunk_sec=2.0, device=None):
         self.samplerate = samplerate
+        self.device = device  # 麦克风设备（None=系统默认）
         self.on_draft = on_draft          # callable(audio: np.ndarray)
         self.on_level = on_level          # callable(rms_01: float)  0~1 归一化录音电平
         self.chunk_sec = chunk_sec
@@ -61,6 +62,7 @@ class Recorder:
         self.vad.reset()
         stream = sd.InputStream(
             samplerate=self.samplerate, channels=1, dtype="float32",
+            device=self.device or None,
             blocksize=320,  # 20ms/帧：频谱与波形更新更细腻（原默认块可能达 100~200ms）
             callback=self._callback,
         )
