@@ -154,10 +154,22 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 
 ---
 
+## 路线图
+
+- **P1 补全**：润色强度运行时切换（F9）、输入历史记录（F12）
+- **工程化**：pytest 单测 + GitHub Actions CI、一键模型下载脚本（ModelScope）、托盘图标 + 设置窗口、PyInstaller 打包 Release
+- **差异化**：自学习纠错引擎（越用越像你）、语音编辑指令、悬浮条右键菜单 + 声音反馈
+- **云端兜底**：`cloud_asr.py` 已就绪，待接入 OpenAI 兼容端点实测（当前未验证）
+- **跨平台**：翻译/人设模式、macOS 版（`提示词.txt` Swift 方案）
+
+> 完整路线图与优先级分析见 `项目审核报告.md` §7~§8。
+
+---
+
 ## 更新记录
 
 <details>
-<summary>📜 点击展开 / 收起版本记录（v2 ~ v5.10）</summary>
+<summary>📜 点击展开 / 收起版本记录（v2 ~ v5.12）</summary>
 
 <!-- 新增版本请继续追加到本折叠区内，保持旧版本在上、新版本在下 -->
 
@@ -183,6 +195,7 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 - **v5.9 项目整理与文档完善**：删除冗余 `injector.py` 与旧注入测试（注入统一走 `safe_inject.py`）、历史 Agent 工作区/结果（`tasks/` `results/` 按需重建）、过期截图与 `__pycache__` 缓存；补充 Apache-2.0 `LICENSE` 文件；同步 README/部署文档/审核报告
 - **v5.10 文档体验**：README 版本记录改为 GitHub 可折叠展示（默认收起、点击展开），后续版本持续追加到折叠区内
 - **v5.11 阿里代码审查与修复**：使用 open-code-review（第 9~11 轮，DeepSeek 评审）全量扫描，修复 7 个 high——refiner 非字符串内容崩溃、ASR 并发换模型竞态、剪贴板分配失败数据丢失、词库重试重复、词库写入崩溃、快速双击 recorder 竞态、测试残留误读；另修复 20+ 项 medium（热键生命周期/有界队列、配置容错、VAD 锁外计算、错误信息脱敏等），详见 `voice_ime/OCR审查报告.md`
+- **v5.12 文档补充**：README 新增"路线图"章节（P1 补全/工程化/差异化/云端兜底/跨平台）；项目审核报告新增 §8.4（云端 ASR 实测待办、OCR 残留清理清单、工程化与差异化两条推进路线）
 
 </details>
 
