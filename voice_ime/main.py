@@ -8,6 +8,7 @@ import threading
 import time
 import tkinter as tk
 import logging
+import os
 
 from config import build_words_block, ensure_defaults, load_config, save_config
 from hotkey import HotkeyListener
@@ -36,10 +37,15 @@ def make_asr(cfg):
     """按配置选择 ASR 引擎：云端（需配置）> 本地 whisper。"""
     a = cfg.get("asr", {})
     cloud = a.get("cloud", {})
-    if a.get("engine") == "cloud" and cloud.get("api_key") and cloud.get("base_url"):
+    cloud_key = (
+        cloud.get("api_key")
+        or os.environ.get("ASR_API_KEY")
+        or os.environ.get("DEEPSEEK_API_KEY", "")
+    )
+    if a.get("engine") == "cloud" and cloud_key and cloud.get("base_url"):
         from cloud_asr import CloudASREngine
         return CloudASREngine(
-            base_url=cloud["base_url"], api_key=cloud["api_key"],
+            base_url=cloud["base_url"], api_key=cloud_key,
             model=cloud.get("model", "whisper-1"),
         )
     return WhisperEngine(a.get("model", "small"), a.get("language", "zh"))

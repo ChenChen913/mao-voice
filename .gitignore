@@ -5,6 +5,7 @@ voice_ime/models/
 voice_ime/config.json
 .env
 .env*
+!.env.example
 *.key
 *.pem
 *.secret

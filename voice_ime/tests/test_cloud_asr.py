@@ -37,3 +37,7 @@ def test_missing_api_key_error():
 
 def test_safe_url_strips_credentials():
     assert cloud_asr._safe_url("https://user:pass@host/v1?token=secret") == "https://host/v1"
+
+
+def test_safe_url_ipv6():
+    assert cloud_asr._safe_url("https://[::1]:8080/v1?token=secret") == "https://[::1]:8080/v1"

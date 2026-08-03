@@ -52,14 +52,24 @@ def load_config(path=CONFIG_PATH):
     model = cfg.get("asr", {}).get("model") or ""
     if model and not os.path.isabs(model) and ("/" in model or "\\" in model or model.startswith(".")):
         cfg["asr"]["model"] = os.path.normpath(os.path.join(BASE_DIR, model))
-    # v5.13.6：API Key 支持环境变量兜底（config 留空时读取）
-    refine = cfg.get("refine")
-    if isinstance(refine, dict) and not refine.get("api_key"):
-        refine["api_key"] = os.environ.get("DEEPSEEK_API_KEY", "")
-    cloud = cfg.get("asr", {}).get("cloud")
-    if isinstance(cloud, dict) and not cloud.get("api_key"):
-        cloud["api_key"] = os.environ.get("ASR_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "")
     return cfg
+
+
+def resolve_keys(cfg):
+    """返回 (refine_api_key, cloud_api_key)：配置为空时回退环境变量。
+
+    v5.14：只在调用时读取、绝不写回 cfg——环境变量注入的密钥不会被 save_config
+    持久化到 config.json。
+    """
+    refine = cfg.get("refine") or {}
+    cloud = (cfg.get("asr") or {}).get("cloud") or {}
+    refine_key = refine.get("api_key") or os.environ.get("DEEPSEEK_API_KEY", "")
+    cloud_key = (
+        cloud.get("api_key")
+        or os.environ.get("ASR_API_KEY")
+        or os.environ.get("DEEPSEEK_API_KEY", "")
+    )
+    return refine_key, cloud_key
 
 
 def save_config(cfg, path=CONFIG_PATH):

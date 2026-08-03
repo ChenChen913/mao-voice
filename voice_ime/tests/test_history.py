@@ -41,3 +41,10 @@ def test_clear(tmp_path):
     h.clear()
     assert h.items() == []
     assert json.loads(Path(p).read_text(encoding="utf-8")) == []
+
+
+def test_zero_duration_recorded(tmp_path):
+    p = str(tmp_path / "history.json")
+    h = HistoryStore(p)
+    h.add("a", "b", duration_s=0)
+    assert h.items()[0]["duration_s"] == 0.0

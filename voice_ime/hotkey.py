@@ -76,12 +76,12 @@ class HotkeyListener:
             if self.listener:
                 self.listener.stop()
                 try:
-                    joined = self.listener.join(timeout=1.0)
+                    self.listener.join(timeout=1.0)
                 except Exception:
-                    joined = False
-                # 只在 listener 实际退出后才清空引用，避免与 start() 竞争
-                if joined and not self.listener.is_alive():
-                    self.listener = None
+                    pass
+                # v5.14：join 超时也清空引用，允许 start() 重建监听器；
+                # 残留线程是 daemon，最坏情况只是多一个已停止的监听线程
+                self.listener = None
             # 通知工作线程退出
             if self._worker is not None and self._worker.is_alive():
                 self._gen += 1  # 残留线程（若 join 超时）下次循环即退出，不会消费新队列
@@ -116,8 +116,11 @@ class HotkeyListener:
                 return
             self._last_time = now
         # 派发到工作线程，绝不阻塞 pynput 监听线程。
+        # v5.14：锁内取队列引用，避免 start()/stop() 换队列时把事件投进旧队列丢失
+        with self._life_lock:
+            q = self._task_queue
         # v5.11：有界队列（maxsize=16）背压生效——满则丢弃本次，避免阻塞监听线程
         try:
-            self._task_queue.put_nowait(key)
+            q.put_nowait(key)
         except queue.Full:
             pass

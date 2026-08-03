@@ -71,13 +71,17 @@ def test_build_words_block(tmp_path):
     assert "- GitHub" in block and "配森 → Python" in block
 
 
-def test_env_api_key_fallback(tmp_path, monkeypatch):
+def test_resolve_keys_env_fallback_not_persisted(tmp_path, monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     p = tmp_path / "c.json"
     p.write_text(json.dumps({"refine": {"api_key": ""}}), encoding="utf-8")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-env")
     cfg = config.load_config(str(p))
-    assert cfg["refine"]["api_key"] == "sk-env"
+    refine_key, cloud_key = config.resolve_keys(cfg)
+    assert refine_key == "sk-env"
+    assert cloud_key == "sk-env"
+    # v5.14：环境变量只参与运行时解析，不写回配置，避免被 save_config 持久化
+    assert cfg["refine"]["api_key"] == ""
 
 
 def test_relative_model_path_resolved(tmp_path, monkeypatch):

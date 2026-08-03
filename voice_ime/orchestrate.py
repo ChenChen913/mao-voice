@@ -61,11 +61,19 @@ def result_path(task):
 
 def run_agent(task):
     workdir = (BASE / task["workdir"]).resolve()
-    # v5.11：防越界——任务工作目录必须落在项目根内
-    if not str(workdir).startswith(str(BASE.resolve())):
+    # v5.11/v5.14：真实路径包含校验（prefix 匹配会被 /project_evil 绕过）
+    try:
+        workdir.relative_to(BASE.resolve())
+    except ValueError:
         raise ValueError("任务工作目录越界: {}".format(workdir))
     workdir.mkdir(parents=True, exist_ok=True)
     prompt = DEFAULT_PROMPT.format(prompt=task.get("prompt_file", "TASK.md"))
+    prompt_path = workdir / task.get("prompt_file", "TASK.md")
+    if not prompt_path.exists():
+        # v5.14：历史工作区已被清理（v5.9 设计），缺少 TASK.md 时明确跳过而非带病执行
+        print("[跳过] {}: 缺少任务说明 {}（工作区已清理，需先重建 TASK.md）".format(task["name"], prompt_path))
+        return {"name": task["name"], "agent": task["agent"], "ok": False,
+                "elapsed_sec": 0.0, "output": ""}
     cmd = build_command(task, prompt)
     timeout = task.get("timeout", 600)
     out_file = result_path(task)

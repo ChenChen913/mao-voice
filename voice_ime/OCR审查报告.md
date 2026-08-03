@@ -124,3 +124,34 @@
 3 轮共报告 109 条评论，其中 7 个 high 已全部修复；终扫残留以 medium/low 打磨项为主
 （死代码、理论性线程安全、文档措辞、测试脚本健壮性），无功能性缺陷。
 符合历史规律：LLM 评审器在修复后会产生新的 low/medium 项，边际收益递减，故本轮到此为止。
+
+---
+
+## 2026-08-03 追加：v5.14 复审记录（第 12~13 轮，v5.13 全量新代码）
+
+v5.13（单测/CI、一键下载、F9/F12、托盘设置、小修）全部落地后再次全量扫描，共 2 轮。
+
+| 轮次 | 触发 | 总评论 | critical | high | security |
+| --- | --- | --- | --- | --- | --- |
+| 第 12 轮 | v5.13 后全量初扫 | 57 | 0 | 5 | 2（medium/low） |
+| 第 13 轮 | 修复后复扫 | 55 | 0 | 2 | 2（medium/low） |
+
+### 已修复的 high（合计 7 个）
+
+1. **orchestrate.py**：任务工作区 `tasks/` 已在 v5.9 清理，运行时会找不到 TASK.md → 缺少说明文件时明确跳过并提示（而非带病执行）；工作目录越界校验由 prefix 匹配改为 `Path.relative_to` 真实包含校验；
+2. **download_model.py**：下载中断会残留残缺文件且下次被当作完整跳过 → 先写 `.part`、成功后原子 `os.replace`，失败/取消清理；
+3. **hotkey.py**：`_on_press` 与 `start()` 换队列竞态，事件可能投进旧队列丢失 → 锁内取队列引用后再投递；
+4. **settings_ui.py**：下载线程直接调 `self.root.after` 违反 Tk 线程安全 → 改为工作线程写状态 + 主线程 200ms 轮询更新；
+5. **config.py**：环境变量注入的 API Key 会被 save_config 持久化 → 改为 `resolve_keys()` 使用期解析、绝不写回 cfg；refiner/main 同步接入；
+6. **hotkey.py**：`stop()` join 超时后不清 listener 引用，导致无法重启 → 超时也清引用，允许 start() 重建；
+7. **tests/target_window.py**：`GetParent/SetForegroundWindow` 未声明 64 位句柄类型，HWND 截断 → 补 argtypes/restype。
+
+### 已修复的 medium（代表性）
+
+- history：非法/零时长容错；settings：词库原子写入；.gitignore：`.env.example` 白名单放行；asr：词库读取失败不再缓存空提示词（保留重试）；doctor：空键位诊断前置到组合键判断；CI：`permissions: contents: read` + `timeout-minutes` + concurrency；test_refiner：mock sleep 缩短重试测试；cloud_asr：IPv6 安全 URL、3D+ 输入降混。
+
+### 终态结论
+
+两轮合计 112 条评论，9 个 high 全部修复；第 13 轮终扫残留 medium/low 均为打磨项
+（死代码、测试细节、理论性竞态），无功能性缺陷。与历史规律一致：修复后仍会产生新
+low/medium，故本轮到此为止。

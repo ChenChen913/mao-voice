@@ -485,7 +485,10 @@ class Overlay:
     def _stop_anim(self):
         """停止动画定时器。"""
         if self._anim_job and self._root:
-            self._root.after_cancel(self._anim_job)
+            try:
+                self._root.after_cancel(self._anim_job)
+            except Exception:
+                pass  # v5.14：窗口销毁竞态下 after_cancel 可能抛 TclError
         self._anim_job = None
 
     # ═══════════════════════════════════════════════════════════════

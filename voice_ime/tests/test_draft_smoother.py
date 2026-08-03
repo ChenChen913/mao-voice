@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """草稿平滑过渡帧单元测试。"""
+import pytest
+
 import draft_smoother
 
 
 def _assert_valid(frames, old, new):
     assert 1 <= len(frames) <= 3
     assert frames[-1][0] == new
-    assert sum(d for _, d in frames) == 0.3
+    assert sum(d for _, d in frames) == pytest.approx(0.3)
 
 
 def test_basic_cases():

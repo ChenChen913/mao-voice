@@ -32,6 +32,8 @@ def _safe_url(url: str) -> str:
     """去掉 URL 的 query 与 userinfo（含端口重建），避免错误信息泄露潜在凭证。"""
     p = urlsplit(url)
     host = p.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"  # v5.14：IPv6 字面量需要方括号
     if p.port:
         host = f"{host}:{p.port}"
     return urlunsplit((p.scheme, host, p.path, "", ""))
@@ -83,7 +85,8 @@ class CloudASREngine:
             audio_f = audio_arr.astype(np.float32)
         # 多声道取平均转单声道（含尾部单通道列的情况）
         if audio_f.ndim > 1:
-            audio_f = audio_f.mean(axis=1)
+            # v5.14：支持 2D（声道数）与 3D+（如批量/多声道）输入，沿所有非时间轴取均值
+            audio_f = audio_f.mean(axis=tuple(range(1, audio_f.ndim)))
         # 裁剪越界值并量化为 16-bit 有符号整数（四舍五入避免截断偏移）
         pcm = np.clip(audio_f, -1.0, 1.0)
         # 关键：修复 NaN 值。np.clip 对 NaN 无效，NaN→int16 行为未定义

@@ -217,6 +217,9 @@ class WhisperEngine:
         with self._load_lock:
             if self._initial_prompt is None:
                 self._load_glossary()
+                if not self._glossary_loaded:
+                    # v5.14：词库读取失败时不缓存空提示词，下次转写会重试
+                    return None
                 parts = [INITIAL_PROMPT_HEAD]
                 if self._glossary_terms:
                     parts.append("术语：" + "、".join(self._glossary_terms))

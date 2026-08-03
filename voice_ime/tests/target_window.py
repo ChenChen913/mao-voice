@@ -11,6 +11,11 @@ if os.path.exists("result.txt"):
     os.remove("result.txt")
 
 user32 = ctypes.windll.user32
+# v5.14：声明 64 位句柄类型，防止 GetParent/SetForegroundWindow 截断 HWND
+user32.GetParent.argtypes = [ctypes.c_void_p]
+user32.GetParent.restype = ctypes.c_void_p
+user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+user32.SetForegroundWindow.restype = ctypes.c_void_p
 root = tk.Tk()
 txt = tk.Text(root)
 txt.pack()

@@ -150,14 +150,8 @@ def _check_config() -> tuple[str, bool, str]:
         return ("配置完整性", False, f"hotkey 应为字符串，实际为 {type(hotkey).__name__}")
 
     hotkey_parts = [k.strip() for k in hotkey.split("+")]
-    if len(hotkey_parts) > 1:
-        # v5.13.6：hotkey.py 仅支持单键；组合键配置会"自检通过但静默失效"，直接报错
-        return (
-            "配置完整性",
-            False,
-            f"hotkey='{hotkey}' 含组合键，但当前仅支持单键（如 alt_r/f9/caps_lock），请改为单键",
-        )
-    # 检查空分割（如 "ctrl+ +alt" 或 "ctrl+" 产生空串）
+    # 先检查空分割（如 "ctrl+ +alt" 或 "ctrl+" 产生空串）再判断组合键，
+    # 保证空键位诊断可达（v5.14）
     empty_parts = [i for i, k in enumerate(hotkey_parts) if not k]
     if empty_parts:
         return (
@@ -165,6 +159,13 @@ def _check_config() -> tuple[str, bool, str]:
             False,
             f"hotkey='{hotkey}' 包含空键位（索引 {empty_parts}），"
             "可能是连续 '+' 或末尾多余的 '+' 导致",
+        )
+    if len(hotkey_parts) > 1:
+        # v5.13.6：hotkey.py 仅支持单键；组合键配置会"自检通过但静默失效"，直接报错
+        return (
+            "配置完整性",
+            False,
+            f"hotkey='{hotkey}' 含组合键，但当前仅支持单键（如 alt_r/f9/caps_lock），请改为单键",
         )
     if not hotkey.strip():
         return (

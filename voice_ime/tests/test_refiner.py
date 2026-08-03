@@ -82,6 +82,7 @@ def test_4xx_no_retry(monkeypatch):
 
 
 def test_429_retries(monkeypatch):
+    monkeypatch.setattr(refiner.time, "sleep", lambda s: None)  # 去掉重试等待，加速测试
     calls = []
 
     def fake_post(*a, **k):
@@ -96,6 +97,7 @@ def test_429_retries(monkeypatch):
 
 
 def test_5xx_retries(monkeypatch):
+    monkeypatch.setattr(refiner.time, "sleep", lambda s: None)  # 去掉重试等待，加速测试
     calls = []
 
     def fake_post(*a, **k):

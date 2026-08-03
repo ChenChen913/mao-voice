@@ -170,7 +170,7 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 ## 更新记录
 
 <details>
-<summary>📜 点击展开 / 收起版本记录（v2 ~ v5.13）</summary>
+<summary>📜 点击展开 / 收起版本记录（v2 ~ v5.14）</summary>
 
 <!-- 新增版本请继续追加到本折叠区内，保持旧版本在上、新版本在下 -->
 
@@ -203,6 +203,7 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 - **v5.13.4 输入历史记录**：新增 `history.py`（内存队列 + history.json 落盘），成功注入后自动记录，设置窗口可查看/清空
 - **v5.13.5 托盘图标 + 设置窗口**：pystray 托盘（开始/停止、打开设置、退出，状态实时更新）；设置窗口五页签（通用/模型/LLM/词库/历史），支持麦克风设备选择与一键下载模型；F8 打开设置
 - **v5.13.6 小修清单**：doctor 拒绝组合键（与单键实现对齐）；各模块自检适配 GBK 控制台；相对模型路径基于 voice_ime 解析；API Key 支持 DEEPSEEK_API_KEY 环境变量兜底
+- **v5.14 阿里复审第 12~13 轮**：9 个 high 全部修复——orchestrate 工作区缺失跳过与真实路径校验、模型下载 .part 原子改名、热键队列锁、设置窗下载线程安全、环境变量密钥不落盘（resolve_keys）、热键 stop 超时可重启、测试 64 位句柄；另修 medium：词库原子写、.env.example 白名单、词库重试缓存、CI 加固等，详见 `voice_ime/OCR审查报告.md`
 
 </details>
 

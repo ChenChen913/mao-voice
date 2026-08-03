@@ -1,5 +1,6 @@
 ﻿"""LLM 后处理：DeepSeek（OpenAI 兼容接口），保守纠错 + 三档强度，带超时重试。"""
 import logging
+import os
 import time
 
 import requests
@@ -38,7 +39,8 @@ class Refiner:
     @property
     def enabled(self):
         r = self.cfg.get("refine", {})
-        return bool(r.get("enabled") and r.get("api_key"))
+        key = r.get("api_key") or os.environ.get("DEEPSEEK_API_KEY", "")
+        return bool(r.get("enabled") and key)
 
     def refine(self, raw_text, level=None, words_block=""):
         if not self.enabled or not raw_text.strip():
@@ -60,7 +62,7 @@ class Refiner:
             "max_tokens": 4096,
         }
         headers = {
-            "Authorization": "Bearer " + r.get("api_key", ""),
+            "Authorization": "Bearer " + (r.get("api_key") or os.environ.get("DEEPSEEK_API_KEY", "")),
             "Content-Type": "application/json",
         }
         url = r.get("base_url", "https://api.deepseek.com/v1").rstrip("/")

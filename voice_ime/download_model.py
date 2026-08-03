@@ -41,9 +41,9 @@ def human_size(n):
     """字节数转可读大小。"""
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024 or unit == "GB":
-            return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} B"
+            return f"{int(n)} B" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
-    return f"{n:.1f} GB"
+    return f"{n:.1f} GB"  # 不可达，兜底
 
 
 def download_file(url, dest):
@@ -104,13 +104,25 @@ def main(argv=None):
         if os.path.exists(dest) and os.path.getsize(dest) > 0:
             print(f"[跳过] {fname} 已存在（{human_size(os.path.getsize(dest))}）")
             continue
+        part = dest + ".part"  # v5.14：先写 .part，成功后再原子改名，防中断留下残缺文件
         print(f"[下载] {fname} ...")
         try:
-            download_file(url, dest)
+            download_file(url, part)
+            os.replace(part, dest)
         except KeyboardInterrupt:
+            try:
+                if os.path.exists(part):
+                    os.remove(part)
+            except OSError:
+                pass
             print("\n已取消")
             sys.exit(130)
         except Exception as e:
+            try:
+                if os.path.exists(part):
+                    os.remove(part)
+            except OSError:
+                pass
             print(f"[失败] {fname}: {e}")
             sys.exit(1)
 

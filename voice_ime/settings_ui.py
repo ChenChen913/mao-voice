@@ -97,6 +97,8 @@ class SettingsWindow:
         self.root.title("AI 语音输入法 · 设置")
         self.root.geometry("640x520")
         self.root.attributes("-topmost", True)
+        self._dl_state = ""   # 下载状态（工作线程写字符串，主线程轮询读）
+        self._dl_last = ""
         self._build()
 
     def _build(self):
@@ -151,8 +153,7 @@ class SettingsWindow:
         self.var_llm_url = self._entry(f, "Base URL", refine.get("base_url", "https://api.deepseek.com/v1"), 1)
         self.var_llm_key = self._entry(f, "API Key（留空读取 DEEPSEEK_API_KEY）", refine.get("api_key", ""), 2)
         self.var_llm_model = self._entry(f, "模型", refine.get("model", "deepseek-chat"), 3)
-        self.var_level = self._combo(f, "润色强度", LEVEL_CHOICES, refine.get("level", "conservative"), 4,
-                                     display={k: f"{v}（{LEVEL_LABELS[k]}）" for k, v in zip(LEVEL_CHOICES, LEVEL_CHOICES)})
+        self.var_level = self._combo(f, "润色强度", LEVEL_CHOICES, refine.get("level", "conservative"), 4)
         self.var_timeout = self._spin(f, "超时（秒）", 5, 120, refine.get("timeout_sec", 30), 5)
 
     def _build_words(self):
@@ -161,7 +162,8 @@ class SettingsWindow:
         self.words_text = tk.Text(f, width=70, height=16)
         self.words_text.grid(row=1, column=0, padx=8, pady=4)
         try:
-            self.words_text.insert("1.0", open(WORDS_PATH, "r", encoding="utf-8-sig").read())
+            with open(WORDS_PATH, "r", encoding="utf-8-sig") as fp:
+                self.words_text.insert("1.0", fp.read())
         except OSError:
             pass
         ttk.Button(f, text="保存词库", command=self._save_words).grid(row=2, column=0, sticky="w", padx=8, pady=4)
@@ -175,7 +177,7 @@ class SettingsWindow:
         self._refresh_history()
 
     # ---------- 控件辅助 ----------
-    def _combo(self, parent, label, choices, value, row, display=None):
+    def _combo(self, parent, label, choices, value, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="e", padx=8, pady=4)
         var = tk.StringVar(value=value)
         c = ttk.Combobox(parent, textvariable=var, values=choices, state="readonly", width=40)
@@ -242,10 +244,18 @@ class SettingsWindow:
 
     def _save_words(self):
         try:
-            with open(WORDS_PATH, "w", encoding="utf-8") as f:
+            # v5.14：原子写入（临时文件 + replace），与 config.py 的落盘约定一致
+            tmp = WORDS_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 f.write(self.words_text.get("1.0", "end"))
+            os.replace(tmp, WORDS_PATH)
             messagebox.showinfo("保存成功", "词库已保存（下次转写生效）", parent=self.root)
         except OSError as e:
+            try:
+                if os.path.exists(WORDS_PATH + ".tmp"):
+                    os.remove(WORDS_PATH + ".tmp")
+            except OSError:
+                pass
             messagebox.showerror("保存失败", str(e), parent=self.root)
 
     def _refresh_history(self):
@@ -263,17 +273,27 @@ class SettingsWindow:
         self._refresh_history()
 
     def _download_model(self):
-        def work():
+        """后台下载 + 主线程轮询更新标签（v5.14：杜绝跨线程直接操作 Tk）。"""
+        def worker():
             try:
                 import download_model
                 download_model.main(["--model", "medium"])
-                self.root.after(0, lambda: self.download_label.config(text="下载完成，模型路径已更新"))
+                self._dl_state = "下载完成，模型路径已更新"
             except SystemExit:
-                pass
+                self._dl_state = "下载已取消"
             except Exception as e:
-                self.root.after(0, lambda: self.download_label.config(text="下载失败：" + str(e)))
-        threading.Thread(target=work, daemon=True).start()
-        self.download_label.config(text="下载中…请保持网络通畅（可随时关闭窗口）")
+                self._dl_state = "下载失败：" + str(e)
+
+        self._dl_state = "下载中…请保持网络通畅（可随时关闭窗口）"
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(200, self._poll_download)
+
+    def _poll_download(self):
+        if self._dl_state != self._dl_last:
+            self._dl_last = self._dl_state
+            self.download_label.config(text=self._dl_state)
+        if self._dl_state.startswith("下载中"):
+            self.root.after(200, self._poll_download)
 
     def lift(self):
         self.root.deiconify()
