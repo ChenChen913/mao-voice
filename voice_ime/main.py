@@ -13,7 +13,6 @@ from hotkey import HotkeyListener
 from recorder import Recorder
 from asr import WhisperEngine
 from refiner import Refiner
-import draft_smoother
 import safe_inject
 from ui import Overlay
 
@@ -105,14 +104,27 @@ class App:
         self._last_rms = rms_01
 
     def _poll_level(self):
-        """主线程每 100ms 读取电平并交给悬浮窗。
+        """主线程每 100ms 读取电平与快速说话指示并交给悬浮窗。
 
-        RECORDING 时驱动实时波形；其余状态输出 0 实现归零。
+        RECORDING 时驱动实时波形，且只有"正在说话"才显示声波；
+        其余状态输出 0 实现归零。
         set_level 只在此主线程调用（tkinter 线程安全），worker/回调线程绝不碰悬浮窗。
         """
         with self._lock:
             recording = self.state == "RECORDING"
+            recorder = self.recorder
+        speaking = False
+        if recording and recorder is not None:
+            try:
+                # v5.5：用逐帧更新的快速说话指示（双阈值滞回），
+                # 比 VAD 去抖判定更快，声波"开口即现、停口即灭"
+                speaking = recorder.speaking_now
+            except Exception:
+                pass
         try:
+            self.overlay.set_speaking(speaking)
+            # v5.7：频带电平（频谱形状）驱动多频段波形；无数据时悬浮窗回退 RMS
+            self.overlay.set_levels(recorder.bands_now if recorder is not None else None)
             self.overlay.set_level(self._last_rms if recording else 0.0)
         except Exception:
             pass
@@ -140,10 +152,9 @@ class App:
             text = text.strip()
             if text:
                 with self._lock:
-                    self._last_draft = text  # 锁下写入：与 _process 的读取形成有序的 happens-before
-                max_chars = self.cfg["ui"]["max_chars"]
-                preview = text[:max_chars] + ("…" if len(text) > max_chars else "")
-                self._post("RECORDING", "🎤 录音中…\n" + preview)
+                    # 预留字段：v5 起浮窗不再展示转写内容，保留增量转写
+                    # 用于模型预热与未来"实时草稿"功能
+                    self._last_draft = text
         except Exception:
             pass
 
@@ -168,7 +179,6 @@ class App:
             # 不会像原实现那样因 stop() 抛异常而把应用卡死在 PROCESSING
             with self._lock:
                 recorder = self.recorder
-                last_draft = self._last_draft  # 锁下快照草稿：跨线程读写的明确定序
             audio = recorder.stop()
             if recorder.duration < MIN_DURATION:
                 self._post("IDLE", "")
@@ -201,30 +211,17 @@ class App:
                 self._post("ERROR", "未配置 API Key，已输出原始转写")
                 time.sleep(1.2)
 
-            max_chars = self.cfg["ui"]["max_chars"]
-            preview_sec = self.cfg["ui"]["preview_sec"]
-            # 草稿平滑：从最近草稿过渡到最终文本，避免文本突变
-            frames = [(final[:max_chars], preview_sec)]
-            if last_draft and last_draft != final:
-                try:
-                    trans = draft_smoother.plan_transition(last_draft, final[:max_chars])
-                    if len(trans) >= 2:
-                        frames = trans[:-1] + [(final[:max_chars], preview_sec)]
-                except Exception:
-                    pass
-            for frame_text, dur in frames:
-                self._post("PREVIEW", frame_text)
-                time.sleep(dur)
-
+            # v5 起不再在浮窗预览转写内容：润色完成后直接注入输入框
+            # （用户反馈"先显示再注入"是多余步骤；状态提示仍保留在浮窗）
             self._post("INJECTING", "⬇️ 注入中…")
             ok, reason = safe_inject.inject(final)
             if not ok:
-                # 区分"完全失败"与"已注入但剪贴板未恢复"两种情况，避免误导用户
-                if reason.startswith("注入成功"):
-                    self._post("ERROR", "文字已注入，但剪贴板未恢复：{}".format(reason))
-                else:
-                    self._post("ERROR", "注入失败：{}".format(reason))
+                self._post("ERROR", "注入失败：{}".format(reason))
                 time.sleep(2.5)
+            elif "恢复未完成" in reason:
+                # v5.4：注入成功即成功；剪贴板未恢复（如被其他程序占用/修改）
+                # 只在控制台留一行提示供排查，不再弹 ERROR 打扰用户
+                print("[剪贴板] " + reason)
         except Exception as e:
             self._post("ERROR", "出错了：{}".format(e))
             time.sleep(2.5)

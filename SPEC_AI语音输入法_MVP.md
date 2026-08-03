@@ -264,3 +264,18 @@ JSON
 | 增量草稿转写排队积压 | 草稿是"尽力而为"，队列忙则跳过，不影响最终结果 |
 | DeepSeek 限流/慢 | 重试 1 次 + 超时降级注入粗转写 |
 | pynput 热键被占用 | config 可换键（如 f9、caps_lock） |
+
+---
+
+## 11. 实现变更记录（截至 2026-08-03 v5）
+
+本文档为 v1.0 原始技术规格，实际实现与其存在以下已确认差异（以代码与 README/部署文档为准）：
+
+- **交互**：按住说话 → 单击 toggle（按一下开始/再按一下结束），默认热键 `alt_r`（兼容 AltGr，200ms 防抖）；
+- **模型**：默认使用本地路径 `models/faster-whisper-medium`（ModelScope 下载，离线可用），不依赖 HuggingFace；
+- **转写参数**：`beam_size=8`、语言自动检测（`None`）、幻觉抑制三阈值、词库热词拼入 `initial_prompt`、峰值归一化；
+- **注入**：以 `safe_inject.py` 为准（剪贴板全格式备份恢复、UIPI 预检、序列号冲突检测）；`injector.py` 冗余实现已于 v5.9 删除；
+- **悬浮窗**：150×52 波形胶囊；v5 起**声波仅在 VAD 判定说话时显示**，静音时只显示「🎤 录音中…」；
+- **管线**：v5 起**移除 PREVIEW 浮窗预览**，润色完成后直接注入输入框；
+- **新增模块**：`cloud_asr.py`（云端 ASR 兜底）、`doctor.py`（环境自检）、`orchestrate.py`（多 Agent 编排）、`draft_smoother.py`（草稿平滑，v5 起未接线，保留备用）；
+- **配置**：新增 `recorder.auto_stop_silence_sec`、`ui.max_chars`、`asr.cloud`；无 `prompts/refine.md`（提示词内嵌于 `refiner.py`）；无 `logs/app.log` 文件日志。

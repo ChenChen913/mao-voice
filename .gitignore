@@ -15,6 +15,7 @@ __pycache__/
 
 # ---- logs and temp ----
 *.log
+*.tmp
 
 # ---- screenshots / demo artifacts ----
 *.png

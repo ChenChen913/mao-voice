@@ -13,10 +13,19 @@ class Recorder:
     # RMS 归一化经验阈值：实测人声 RMS 达到 0.3 即视为"满格"（1.0），静音≈0
     RMS_NORMALIZE = 0.3
 
-    # stop() 在 join(2s) 超时后最多再等草稿线程收尾的时长：on_draft 是慢转写回调，
-    # 必须等它完成（快照在其前已入列）才能安全拼接最终音频；设上界防回调
-    # 永久卡死（如用户回调死循环）把 stop() 拖死
-    DRAFT_FINISH_WAIT_SEC = 8.0
+    # 快速说话指示阈值（归一化 RMS，0~1）：驱动悬浮窗声波显示。
+    # 与 VAD 分离：VAD 带 120/200ms 去抖，用于静音自动停止（偏保守）；
+    # 波形显示要求更灵敏，用"开启/关闭双阈值滞回"逐帧更新，
+    # 说话即亮、停口即灭，避免用户感知到约 1 秒的显示延迟。
+    # v5.6：阈值大幅降低（约 -44dB），任何发声——包括轻声、气声、
+    # "嗯/啊"等语气词——都会触发波形；只要用户出声，声波就跳动
+    SPEAK_ON_RMS_01 = 0.02    # 开启阈值 ≈ -44dB（原始 RMS≈0.006）
+    SPEAK_OFF_RMS_01 = 0.012  # 关闭阈值 ≈ -49dB，滞回防临界噪声抖动
+
+    # 频谱频带数（v5.7）：与悬浮窗竖条数一致。对每帧音频做 FFT，
+    # 按对数频带（80Hz~8kHz，覆盖人声）划分能量，驱动音乐播放器式的
+    # 多频段波形——音调/语气不同，各频段能量不同，波形形状随之变化。
+    SPECTRUM_BANDS = 15
 
     def __init__(self, samplerate=16000, on_draft=None, on_level=None, chunk_sec=2.0):
         self.samplerate = samplerate
@@ -29,23 +38,29 @@ class Recorder:
         self._lock = threading.Lock()
         self._draft_thread = None
         self._stop_draft = threading.Event()
-        self._draft_done = threading.Event()  # 草稿线程真正退出时置位：stop() 靠它等 in-flight 收尾
+        self._draft_done = threading.Event()  # 草稿线程真正退出时置位（保留供诊断，stop() 不再等待）
         self._offset_samples = 0          # 本窗口内已消费样本数（快照后恒为 0）
         self._draft_busy = False
         self._epoch = 0                   # 会话代数：stop() 递增使残留的旧 draft 循环立即退出
+        self._speaking_fast = False       # 快速说话指示：音频回调线程逐帧更新，主线程只读
+        self._last_bands = None           # 最近一帧的频带电平（0~1 形状）：回调线程写，主线程只读
         self.vad = VAD()
 
     def start(self):
-        self._chunks = []
-        self._all_parts = []
-        self._offset_samples = 0
+        with self._lock:
+            self._chunks = []
+            self._all_parts = []
+            self._offset_samples = 0
+            self._speaking_fast = False
+            self._last_bands = None
+            self._epoch += 1
+            epoch = self._epoch
         self._stop_draft.clear()
-        self._draft_done.clear()          # 上会话可能已置位：新会话重新开始等待
-        self._epoch += 1
-        epoch = self._epoch
+        self._draft_done.clear()
         self.vad.reset()
         self._stream = sd.InputStream(
             samplerate=self.samplerate, channels=1, dtype="float32",
+            blocksize=320,  # 20ms/帧：频谱与波形更新更细腻（原默认块可能达 100~200ms）
             callback=self._callback,
         )
         self._stream.start()
@@ -64,14 +79,54 @@ class Recorder:
             self.vad.process(indata.flatten())
         except Exception:
             logging.exception("VAD.process 异常（已忽略，不影响录音）")
-        # 每帧计算一次 RMS 电平（帧长约 20ms，频率适中），归一化后回调；
+        # 每帧计算一次 RMS 电平（帧长约 20ms），归一化后：
+        # 1) 更新快速说话指示（双阈值滞回，驱动声波显示，响应快于 VAD 去抖）；
+        # 2) 回调给主线程驱动波形高度。
         # 回调抛异常必须静默吞掉，绝不影响录音主流程（同样记日志便于排查）
         try:
+            rms = float(np.sqrt(np.mean(indata ** 2)))
+            rms_01 = min(rms / self.RMS_NORMALIZE, 1.0)
+            if rms_01 >= Recorder.SPEAK_ON_RMS_01:
+                self._speaking_fast = True
+            elif rms_01 <= Recorder.SPEAK_OFF_RMS_01:
+                self._speaking_fast = False
             if self.on_level:
-                rms = float(np.sqrt(np.mean(indata ** 2)))
-                self.on_level(min(rms / self.RMS_NORMALIZE, 1.0))
+                self.on_level(rms_01)
         except Exception:
             logging.exception("on_level 回调异常（已忽略，不影响录音）")
+        # 每帧计算频带电平（FFT）：失败不影响录音主流程
+        try:
+            bands = self._compute_bands(indata)
+            if bands is not None:
+                self._last_bands = bands  # 整表引用替换，跨线程读安全（GIL 原子）
+        except Exception:
+            logging.exception("频带计算异常（已忽略，不影响录音）")
+
+    def _compute_bands(self, indata):
+        """计算对数频带（80Hz~8kHz）的相对电平，返回 0~1 形状列表。
+
+        只返回"形状"（按本帧峰值归一化），响度增益由 UI 用 RMS 再乘一次，
+        避免安静帧的形状被放大成满幅；帧太短或无能量时返回 None。
+        """
+        x = np.asarray(indata, dtype=np.float32).flatten()
+        n = x.size
+        if n < 64:
+            return None
+        x = x - float(np.mean(x))  # 去直流，避免低频假能量
+        win = np.hanning(n).astype(np.float32)  # 加窗减少频谱泄漏
+        spec = np.abs(np.fft.rfft((x * win).astype(np.float32)))
+        freqs = np.fft.rfftfreq(n, 1.0 / self.samplerate)
+        edges = np.geomspace(80.0, 8000.0, self.SPECTRUM_BANDS + 1)
+        levels = np.empty(self.SPECTRUM_BANDS, dtype=np.float32)
+        for i in range(self.SPECTRUM_BANDS):
+            mask = (freqs >= edges[i]) & (freqs < edges[i + 1])
+            idx = np.flatnonzero(mask)
+            levels[i] = float(np.mean(spec[idx])) if idx.size else 0.0
+        peak = float(levels.max())
+        if peak <= 1e-9:
+            return None
+        levels /= peak
+        return [float(v) for v in levels]
 
     def _draft_loop(self, epoch):
         chunk_samples = int(self.chunk_sec * self.samplerate)
@@ -90,7 +145,7 @@ class Recorder:
                         with self._lock:
                             self._draft_busy = True  # 锁下读写：跨循环串行化快照/回调段
                         try:
-                            data = self._snapshot_from_offset()
+                            data = self._snapshot_from_offset(epoch)
                             if data.size > 0 and self.on_draft:
                                 try:
                                     self.on_draft(data)
@@ -111,15 +166,18 @@ class Recorder:
             # （快照 + on_draft 回调）已经收尾，可以安全拼接/复用缓冲
             self._draft_done.set()
 
-    def _snapshot_from_offset(self):
+    def _snapshot_from_offset(self, epoch):
         """快照未消费音频并清空 _chunks：每次只拷贝一个窗口（O(窗口)）。
 
         原实现每次草稿都 np.concatenate 整个录音历史（累积 O(n²) 拷贝 + 无界 _chunks）。
         消费段移入 _all_parts 保留：stop() 的最终转写仍需要全程音频（功能不变），
         因此全程内存不可避免（见 README 取舍说明），但每段音频只被拷贝一次、_chunks 有界。
+
+        epoch 在锁内二次校验：stop() 之后残留的草稿线程即使已通过循环顶部的检查，
+        也会在这里被挡掉，绝不消费/污染新会话或停止后的缓冲。
         """
         with self._lock:
-            if not self._chunks:
+            if epoch != self._epoch or not self._chunks:
                 return np.empty(0, dtype=np.float32)
             data = np.concatenate(self._chunks).flatten()
             if data.size <= self._offset_samples:
@@ -136,38 +194,37 @@ class Recorder:
             self._stream.close()
             self._stream = None
         self._stop_draft.set()
-        self._epoch += 1  # join 超时（on_draft 慢）时旧循环下次迭代即退出，不会与下一轮并发
-        if self._draft_thread:
-            self._draft_thread.join(timeout=2)
-            if self._draft_thread.is_alive():
-                # join 超时：旧线程还卡在 on_draft（慢转写）中。此刻不能直接拼接
-                # _all_parts——in-flight 的快照可能在拼接之后才追加音频，导致返回的
-                # 最终音频缺尾段；若调用方立刻 start() 新会话，残留线程还可能串音到
-                # 新缓冲（_epoch 检查只在循环顶部，挡不住快照在途的窗口）。
-                # 等 _draft_done（线程真正退出）再继续；上界防回调永久卡死拖死 stop()
-                logging.info(
-                    "草稿线程 on_draft 较慢（join 超时），等待其收尾（≤%.0fs）",
-                    Recorder.DRAFT_FINISH_WAIT_SEC,
-                )
-                self._draft_done.wait(timeout=Recorder.DRAFT_FINISH_WAIT_SEC)
-                # 事件置位后线程立即退出（finally 末行是 set），短 join 收尾，
-                # 避免线程退出前最后的调度间隙被下面 is_alive() 误判为卡死
-                self._draft_thread.join(timeout=0.5)
-                if self._draft_thread.is_alive():
-                    # 极罕见（on_draft 卡死/快照被锁长阻塞）：放弃等待继续，
-                    # 由 _epoch + _stop_draft 隔离残留线程（它不会再进入快照分支），
-                    # 代价是可能丢最后一小段音频——记日志便于事后诊断
-                    logging.warning(
-                        "草稿线程 %.0fs 内未收尾，放弃等待继续（残留线程已被 epoch/stop 信号隔离）",
-                        Recorder.DRAFT_FINISH_WAIT_SEC,
-                    )
-            self._draft_thread = None
+        # v5.5：不再等待草稿线程退出。原实现 join(≤2s) 会卡在 in-flight 的
+        # on_draft（增量转写可能耗时 1~2s），导致"按完成键后迟迟不转写"。
+        # 音频收集与草稿快照共用同一把锁，且快照在锁内做 epoch 二次校验，
+        # 因此 stop() 可以直接安全拼接全程音频，残留线程由 epoch/stop 信号隔离。
+        with self._lock:
+            self._epoch += 1
+        self._draft_thread = None
         with self._lock:
             parts = self._all_parts
             if self._chunks:
                 parts = parts + [np.concatenate(self._chunks).flatten()]
             data = np.concatenate(parts) if parts else np.empty(0, dtype=np.float32)
         return data.flatten()
+
+    @property
+    def speaking_now(self):
+        """快速说话指示（bool）：音频回调线程逐帧更新，主线程只读。
+
+        用于悬浮窗声波显示：响应速度远快于 VAD 的去抖判定，
+        说话立即亮波形、停口立即灭波形（约 1 帧延迟）。
+        """
+        return self._speaking_fast
+
+    @property
+    def bands_now(self):
+        """最近一帧的频带电平（0~1 形状列表，长度 SPECTRUM_BANDS）。
+
+        由音频回调线程整表替换更新；主线程读取引用是安全的。
+        尚无数据（录音刚开始/帧过短）时返回 None。
+        """
+        return self._last_bands
 
     @property
     def duration(self):

@@ -22,7 +22,7 @@ FONT_FAMILY = 'Microsoft YaHei UI'
 
 # ── 各状态配置：尺寸 / 默认文字 / 主题色 ──────────────────────────
 STATE_CONFIG = {
-    'RECORDING':    {'text': '',                  'color': '#4A90D9', 'w': 150, 'h': 52},
+    'RECORDING':    {'text': '',                  'color': '#4A90D9', 'w': 180, 'h': 56},
     'TRANSCRIBING': {'text': '✍️ 转写中',         'color': '#F39C12', 'w': 150, 'h': 52},
     'REFINING':     {'text': '✨ 润色中',         'color': '#9B59B6', 'w': 150, 'h': 52},
     'INJECTING':    {'text': '⬇️ 注入中',         'color': '#3498DB', 'w': 150, 'h': 52},
@@ -31,11 +31,11 @@ STATE_CONFIG = {
 }
 
 # ── 音频波参数 ────────────────────────────────────────────────────
-WAVE_BAR_COUNT = 5          # 竖条数
-WAVE_BAR_WIDTH = 3          # 每条宽度 px
-WAVE_BAR_GAP = 5            # 条间距 px
+WAVE_BAR_COUNT = 15         # 竖条数（v5.7：5→15，颗粒度更细，音乐播放器式频谱）
+WAVE_BAR_WIDTH = 4          # 每条宽度 px
+WAVE_BAR_GAP = 4            # 条间距 px
 WAVE_MIN_HEIGHT = 4         # 静默最低高度 px
-WAVE_MAX_HEIGHT = 26        # 满幅最高高度 px
+WAVE_MAX_HEIGHT = 34        # 满幅最高高度 px（v5.7：26→34，跳动幅度更大）
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -86,9 +86,11 @@ class Overlay:
         overlay = Overlay()
         overlay.show('RECORDING')
         overlay.set_level(0.7)   # 驱动波形
+        overlay.set_speaking(True)  # VAD 说话状态：仅说话时显示声波
         overlay.hide()
 
-    show/hide/set_level 均可安全地从任意线程调用（内部自动路由到 Tk 主线程）。
+    show/hide/set_level/set_speaking 均可安全地从任意线程调用
+    （内部自动路由到 Tk 主线程）。
     """
 
     def __init__(self, root=None):
@@ -106,6 +108,10 @@ class Overlay:
         self._rms = 0.0          # 外部传入 RMS（0~1）
         self._smooth_rms = 0.0   # 平滑 RMS，驱动波形
         self._phase = 0.0        # 呼吸动画相位
+        self._speaking = False   # VAD 说话状态：True 才绘制声波，静音不显示
+        self._levels = None      # 频带电平（0~1 形状列表）：来自 recorder，驱动多频段波形
+        self._smooth_bands = None  # 逐条平滑后的频带电平
+        self._peak_bands = None  # 峰值保持-回落状态（说话律动用）
 
     # ═══════════════════════════════════════════════════════════════
     # 窗口创建（惰性，仅一次）
@@ -194,6 +200,23 @@ class Overlay:
         """
         self._rms = max(0.0, min(1.0, rms))
 
+    def set_speaking(self, speaking):
+        """设置 VAD 说话状态：True 显示声波，False 隐藏声波。
+
+        设计：声波只在用户真正说话时出现（VAD 去抖后），静音时悬浮窗
+        只显示"录音中"提示文案，让用户直观感知"我正在说话"。
+        可从任意线程安全调用（bool 赋值在 CPython GIL 下是原子的）。
+        """
+        self._speaking = bool(speaking)
+
+    def set_levels(self, levels):
+        """外部传入频带电平（0~1 形状，长度与竖条数一致或更长），驱动多频段波形。
+
+        波形形状随音调/语气变化（音乐播放器式）；无频带数据时传 None，
+        回退为 RMS 均匀波形。仅主线程调用。
+        """
+        self._levels = list(levels) if levels else None
+
     # ═══════════════════════════════════════════════════════════════
     # 内部实现（必须在 Tk 主线程调用）
     # ═══════════════════════════════════════════════════════════════
@@ -206,6 +229,10 @@ class Overlay:
         self._state = state
         self._text = text
         self._smooth_rms = 0.0   # 每次 show 重置平滑值
+        self._speaking = False   # 每次进入状态重置说话标记，等待 VAD 重新上报
+        self._levels = None      # 重置频带，等待主线程轮询重新上报
+        self._smooth_bands = None
+        self._peak_bands = None
 
         cfg = STATE_CONFIG[state]
         w, h = cfg['w'], cfg['h']
@@ -269,7 +296,7 @@ class Overlay:
         cfg = STATE_CONFIG[state]
 
         if state == 'RECORDING':
-            # 录音中：纯波形，无文字，30fps 动画
+            # 录音中：只显示波形——说话时律动，静音时静止，30fps 动画
             self._anim_job = self._root.after(33, self._tick_recording, w, h)
         elif state in ('TRANSCRIBING', 'REFINING'):
             # 转写/润色：文字 + 右侧呼吸点动画
@@ -298,32 +325,56 @@ class Overlay:
             anchor='center',
         )
 
-    def _draw_wave_bars(self, w, h, rms):
-        """在 Canvas 上绘制 5 根竖条音频波。
+    def _draw_wave_bars(self, w, h, rms, levels=None):
+        """绘制多频段音频波（说话律动态，音乐播放器式频谱）。
 
         Args:
             w, h: 窗口宽高
-            rms: 平滑后的 RMS（0~1），驱动基准高度
+            rms: 平滑后的 RMS（0~1），作为响度增益
+            levels: 频带形状（0~1，长度≥竖条数）；None 时回退为 RMS 均匀波形
+
+        v5.8 律动加强：频带形状 × 响度增益 → 逐条快速平滑 →
+        峰值保持-回落（跳起后缓慢落下）→ 轻微摆动 + 包络。
         """
+        n = WAVE_BAR_COUNT
+        if levels is not None and len(levels) >= n:
+            gain = min(1.0, math.sqrt(max(rms, 0.0)) * 1.2)  # 增益加强：律动更明显
+            raw = [min(1.0, levels[i] * gain) for i in range(n)]
+        else:
+            disp = min(1.0, math.sqrt(max(rms, 0.0)) * 1.2)
+            raw = [disp] * n
+
+        # 逐条平滑（系数 0.45→0.6，响应更快，跳动更跟手）
+        if self._smooth_bands is None or len(self._smooth_bands) != n:
+            self._smooth_bands = list(raw)
+        else:
+            self._smooth_bands = [s + (lv - s) * 0.6 for s, lv in zip(self._smooth_bands, raw)]
+
+        # 峰值保持-回落：声音一来条立刻跳起，随后缓慢回落，
+        # 形成音乐播放器式"跳起-落下"律动
+        if self._peak_bands is None or len(self._peak_bands) != n:
+            self._peak_bands = list(self._smooth_bands)
+        else:
+            self._peak_bands = [
+                max(s, p * 0.88) for s, p in zip(self._smooth_bands, self._peak_bands)
+            ]
+
+        # 包络：中间略高、两侧略低，观感接近音乐播放器频谱
+        env = [0.7 + 0.3 * math.sin(math.pi * (i + 0.5) / n) for i in range(n)]
+
         c = self._canvas
         color = STATE_CONFIG['RECORDING']['color']
 
-        # 基于 RMS 计算基准高度
-        base_h = WAVE_MIN_HEIGHT + (WAVE_MAX_HEIGHT - WAVE_MIN_HEIGHT) * rms
-
         # 竖条组居中
-        total_w = WAVE_BAR_COUNT * WAVE_BAR_WIDTH + (WAVE_BAR_COUNT - 1) * WAVE_BAR_GAP
+        total_w = n * WAVE_BAR_WIDTH + (n - 1) * WAVE_BAR_GAP
         start_x = (w - total_w) // 2
         bar_center_y = h // 2
 
-        for i in range(WAVE_BAR_COUNT):
-            # 每根加随机抖动，模拟真实音频频谱
-            if rms > 0.05:
-                jitter = random.uniform(-0.5, 0.5) * base_h
-            else:
-                jitter = random.uniform(0, 1.5)  # 静默时微量随机呼吸
-            bar_h = max(WAVE_MIN_HEIGHT, base_h + jitter)
-            bar_h = min(WAVE_MAX_HEIGHT, bar_h)
+        for i in range(n):
+            # 轻微摆动：每根条相位/频率不同，同一音调下也有明显律动
+            wobble = 0.06 * math.sin(self._phase * (1.0 + i * 0.15) + i * 0.9)
+            lv = max(0.0, min(1.0, self._peak_bands[i] * env[i] + wobble))
+            bar_h = WAVE_MIN_HEIGHT + (WAVE_MAX_HEIGHT - WAVE_MIN_HEIGHT) * lv
 
             x1 = start_x + i * (WAVE_BAR_WIDTH + WAVE_BAR_GAP)
             x2 = x1 + WAVE_BAR_WIDTH
@@ -333,28 +384,49 @@ class Overlay:
             # 竖条（小圆角 2px）
             _rounded_rect(c, x1, y1, x2, y2, radius=2, fill=color, outline='')
 
+    def _draw_rest_wave(self, w, h):
+        """绘制平静的静止波形：一串竖条、中间略高，完全不动（v5.8）。"""
+        n = WAVE_BAR_COUNT
+        c = self._canvas
+        color = STATE_CONFIG['RECORDING']['color']
+        total_w = n * WAVE_BAR_WIDTH + (n - 1) * WAVE_BAR_GAP
+        start_x = (w - total_w) // 2
+        bar_center_y = h // 2
+        for i in range(n):
+            # 静止包络：中间略高、两侧略低，低矮平静
+            env = 0.20 + 0.15 * math.sin(math.pi * (i + 0.5) / n)
+            bar_h = WAVE_MIN_HEIGHT + (WAVE_MAX_HEIGHT - WAVE_MIN_HEIGHT) * env
+            x1 = start_x + i * (WAVE_BAR_WIDTH + WAVE_BAR_GAP)
+            x2 = x1 + WAVE_BAR_WIDTH
+            y1 = bar_center_y - bar_h // 2
+            y2 = bar_center_y + bar_h // 2
+            _rounded_rect(c, x1, y1, x2, y2, radius=2, fill=color, outline='')
+
     # ═══════════════════════════════════════════════════════════════
     # 动画帧
     # ═══════════════════════════════════════════════════════════════
 
     def _tick_recording(self, w, h):
-        """录音波形动画帧（~30 fps）。"""
+        """录音动画帧（~30 fps）：说话时波形律动，静音时静止波形。"""
         if not self._active or self._state != 'RECORDING':
             return
 
-        # 低通滤波平滑 RMS
-        self._smooth_rms += (self._rms - self._smooth_rms) * 0.3
-
-        # 无数据时微弱呼吸效果
-        if self._smooth_rms < 0.02:
-            self._smooth_rms = 0.03 + 0.03 * math.sin(self._phase)
-            self._phase += 0.12
-
-        # 全量重绘：背景 + 波形
         c = self._canvas
         c.delete('all')
         _rounded_rect(c, 0, 0, w, h, radius=16, fill=BG_DARK, outline='')
-        self._draw_wave_bars(w, h, self._smooth_rms)
+
+        if self._speaking:
+            # 说话中：平滑 RMS 作为响度增益，结合频带形状绘制多频段波形；
+            # 相位推进驱动"峰值回落 + 轻微摆动"，律动明显
+            self._phase += 0.18
+            self._smooth_rms += (self._rms - self._smooth_rms) * 0.6
+            self._draw_wave_bars(w, h, self._smooth_rms, self._levels)
+        else:
+            # 未说话：不律动，只画平静的静止波形（无文字）
+            self._smooth_rms = 0.0
+            self._smooth_bands = None
+            self._peak_bands = None
+            self._draw_rest_wave(w, h)
 
         self._anim_job = self._root.after(33, self._tick_recording, w, h)
 
@@ -364,7 +436,10 @@ class Overlay:
             return
 
         self._phase += 0.08
-        a = 0.3 + 0.4 * (1 + math.sin(self._phase))  # 亮度在 0.3~1.0 间震荡
+        # 亮度系数钳制到 [0.3, 1.0]：原公式在 sin 接近 1 时最大可达 1.1，
+        # 与亮色（如 #F39C12）插值后 RGB 会超过 255，拼出 7 位非法颜色名
+        # （实测异常：invalid color name "#102a511"），必须钳制
+        a = min(1.0, 0.3 + 0.4 * (1 + math.sin(self._phase)))
 
         c = self._canvas
         c.delete('all')
@@ -383,9 +458,10 @@ class Overlay:
         dot_y = h // 2
         hex_c = color.lstrip('#')
         cr, cg, cb = int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
-        fr = int(0x1E + (cr - 0x1E) * a)
-        fg = int(0x1E + (cg - 0x1E) * a)
-        fb = int(0x1E + (cb - 0x1E) * a)
+        # 各通道再兜底钳制到 [0,255]，防止任何颜色组合下生成非法颜色名
+        fr = max(0, min(255, int(0x1E + (cr - 0x1E) * a)))
+        fg = max(0, min(255, int(0x1E + (cg - 0x1E) * a)))
+        fb = max(0, min(255, int(0x1E + (cb - 0x1E) * a)))
         dot_fill = f'#{fr:02x}{fg:02x}{fb:02x}'
         c.create_oval(dot_x - dot_r, dot_y - dot_r,
                       dot_x + dot_r, dot_y + dot_r,
