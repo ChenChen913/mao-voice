@@ -255,18 +255,19 @@ class App:
         max_duration = self.cfg.get("recorder", {}).get("max_duration_sec", 0) or 0
         with self._lock:
             recording = self.state == "RECORDING"
+            recorder = self.recorder  # v5.17（N-M1）：锁内取局部变量，锁外不再重复读
         # v5.11：active 守卫——新 Recorder 创建完成前，不读上一会话已停止的 recorder
-        if recording and self.recorder is not None and self.recorder.active:
+        if recording and recorder is not None and recorder.active:
             if auto_stop > 0:
                 try:
-                    if self.recorder.vad.silence_seconds() >= auto_stop:
+                    if recorder.vad.silence_seconds() >= auto_stop:
                         self._finish_recording()
                 except Exception:
                     pass
             # v5.16（M4）：最大录音时长兜底，防误触/静音会话无限录音占用内存
             if max_duration > 0:
                 try:
-                    if self.recorder.duration >= max_duration:
+                    if recorder.duration >= max_duration:
                         self._finish_recording()
                 except Exception:
                     pass

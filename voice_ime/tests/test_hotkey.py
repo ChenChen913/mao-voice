@@ -72,3 +72,19 @@ def test_queued_toggle_skipped_after_stop():
     h._worker.join(timeout=3.0)
     assert calls == []
     h.stop()
+
+
+def test_worker_stop_with_full_queue_does_not_deadlock():
+    """N-m1：队列满 16 时 worker 线程内调用 stop 不应阻塞（put_nowait + 忽略满）。"""
+    h = HotkeyListener("f9", lambda: None)
+    for _ in range(h._task_queue.maxsize):
+        h._task_queue.put_nowait(object())
+
+    def run_stop_from_worker():
+        h._worker = threading.current_thread()
+        h.stop()
+
+    t = threading.Thread(target=run_stop_from_worker)
+    t.start()
+    t.join(timeout=2.0)
+    assert not t.is_alive(), "worker 内 stop 在队列满时阻塞（自死锁）"

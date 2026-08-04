@@ -23,8 +23,8 @@ class _FakeKeyboard:
         self.released.append(key)
 
 
-def test_inject_success_uses_restore_delay(monkeypatch):
-    """注入成功路径：Ctrl+V 后等待可配置的 restore_delay_sec 再恢复剪贴板（M2）。"""
+def _mock_full_inject(monkeypatch):
+    """把注入成功路径所需的剪贴板/键盘全部替换为可控 mock，返回 sleep 记录。"""
     sleeps = []
     monkeypatch.setattr(safe_inject.time, "sleep", lambda s: sleeps.append(s))
     monkeypatch.setattr(safe_inject, "_check_uipi_block", lambda: (False, ""))
@@ -41,6 +41,12 @@ def test_inject_success_uses_restore_delay(monkeypatch):
     monkeypatch.setattr(safe_inject.ctypes, "memmove", lambda *a: None)
     fake_kb = _FakeKeyboard()
     monkeypatch.setattr(safe_inject, "KeyboardController", lambda: fake_kb)
+    return sleeps, fake_kb
+
+
+def test_inject_success_uses_restore_delay(monkeypatch):
+    """注入成功路径：Ctrl+V 后等待可配置的 restore_delay_sec 再恢复剪贴板（M2）。"""
+    sleeps, fake_kb = _mock_full_inject(monkeypatch)
 
     ok, msg = safe_inject.inject("你好", restore_delay_sec=0.35)
 
@@ -49,6 +55,20 @@ def test_inject_success_uses_restore_delay(monkeypatch):
     assert 0.35 in sleeps, "应等待配置的恢复延迟 0.35s，实际等待序列：{}".format(sleeps)
     assert fake_kb.pressed == [safe_inject.Key.ctrl, "v"]
     assert fake_kb.released == ["v", safe_inject.Key.ctrl]
+
+
+def test_restore_delay_clamped(monkeypatch):
+    """N-m2：非数字回退默认 0.2s，超范围钳制到 5s，不再抛 TypeError。"""
+    sleeps, _ = _mock_full_inject(monkeypatch)
+
+    ok, msg = safe_inject.inject("你好", restore_delay_sec="abc")
+    assert ok is True
+    assert 0.2 in sleeps
+
+    sleeps.clear()
+    ok, msg = safe_inject.inject("你好", restore_delay_sec=999)
+    assert ok is True
+    assert max(sleeps) == 5.0
 
 
 def test_inject_aborts_when_focus_changed(monkeypatch):

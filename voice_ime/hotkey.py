@@ -105,7 +105,12 @@ class HotkeyListener:
                 # v5.11：worker 线程内调用 stop 时不能 join 自身（会 RuntimeError），
                 # 只递增代数并投递哨兵，让本线程在下次循环退出
                 self._gen += 1
-                self._task_queue.put(_STOP)
+                # v5.17（N-m1）：队列满（16 积压）时 put 会阻塞等待自己消费 → 自死锁；
+                # 改 put_nowait，哨兵丢失也无妨——代数已递增，worker 下次循环即退出
+                try:
+                    self._task_queue.put_nowait(_STOP)
+                except queue.Full:
+                    pass
                 return
             if self.listener:
                 self.listener.stop()

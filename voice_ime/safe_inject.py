@@ -513,7 +513,8 @@ def inject(
       1. 注入前保存原剪贴板的【所有格式】（文本/位图/文件列表等）
       2. 检测 UIPI 拦截风险（目标窗口为管理员权限时提前报错）
       3. 将文本放入剪贴板 → 模拟 Ctrl+V → 立即恢复原剪贴板
-      4. 整个过程覆盖窗口 < 50ms（设置剪贴板 ~5ms + 按键 ~15ms + 等待粘贴 ~25ms）
+      4. 整个过程覆盖窗口约 220ms（设置剪贴板 ~5ms + 按键 ~15ms + 等待粘贴 ~200ms，
+         可在 inject.restore_delay_sec 调整，钳制范围 0.05~5s）
       5. 通过序列号检测剪贴板是否在操作期间被外部修改，防止误覆盖用户操作
 
     参数:
@@ -535,6 +536,14 @@ def inject(
     # ---- 输入校验 ----
     if not text:
         return False, "输入文本为空"
+
+    # v5.17（N-m2）：restore_delay_sec 来自用户可编辑配置，必须做类型/范围钳制，
+    # 否则手改 config 为非数字时 max(0.0, ...) 会抛 TypeError 使注入整体失败
+    try:
+        delay = float(restore_delay_sec)
+    except (TypeError, ValueError):
+        delay = DEFAULT_RESTORE_DELAY_SEC
+    delay = min(max(delay, 0.05), 5.0)
 
     # ---- UIPI 检测 ----
     blocked, reason = _check_uipi_block()
@@ -614,7 +623,7 @@ def inject(
         keyboard.release(Key.ctrl)
 
         # 等待目标应用完成粘贴后再恢复剪贴板；慢应用需要更长窗口期（M2）
-        time.sleep(max(0.0, restore_delay_sec))
+        time.sleep(delay)
     except Exception as e:
         # 按键模拟异常（极少发生，如 pynput 后端初始化失败）
         # 无论粘贴是否成功，都要尝试恢复剪贴板

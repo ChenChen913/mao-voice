@@ -11,7 +11,12 @@ import config
 def test_load_defaults_when_missing(tmp_path):
     cfg = config.load_config(str(tmp_path / "nope.json"))
     assert cfg["hotkey"] == "alt_r"
-    assert cfg["asr"]["model"] == "small"
+    # v5.17（N-m4）：默认模型改为相对路径，load_config 会解析为绝对路径
+    expected_model = os.path.normpath(
+        os.path.join(config.BASE_DIR, "models", "faster-whisper-medium")
+    )
+    assert cfg["asr"]["model"] == expected_model
+    assert cfg["asr"]["language"] is None
     # v5.16（C2）：隐私默认关闭
     assert config.DEFAULT_CONFIG["history"]["enabled"] is False
     assert cfg["history"]["enabled"] is False
@@ -22,7 +27,7 @@ def test_deep_merge(tmp_path):
     p.write_text(json.dumps({"asr": {"model": "medium"}, "ui": {"max_chars": 99}}), encoding="utf-8")
     cfg = config.load_config(str(p))
     assert cfg["asr"]["model"] == "medium"
-    assert cfg["asr"]["language"] == "zh"
+    assert cfg["asr"]["language"] is None
     assert cfg["ui"]["max_chars"] == 99
 
 

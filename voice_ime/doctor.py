@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from config import resolve_keys
+
 # Windows GBK 控制台兼容：emoji/中文输出强制走 UTF-8，避免 UnicodeEncodeError
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -186,7 +188,7 @@ def _check_config() -> tuple[str, bool, str]:
 
 
 def _check_api_key() -> tuple[str, bool, str]:
-    """4. refine.api_key 是否已配置（不输出 key 明文）"""
+    """4. refine.api_key / DEEPSEEK_API_KEY 是否已配置（不输出 key 明文）"""
     data, err = _load_config()
     if err:
         return ("API Key", False, err)
@@ -195,10 +197,11 @@ def _check_api_key() -> tuple[str, bool, str]:
     if not isinstance(refine, dict):
         return ("API Key", False, "缺少 refine 字段或类型错误（应为对象）")
 
-    api_key = refine.get("api_key", "")
-    if isinstance(api_key, str) and api_key.strip():
-        return ("API Key", True, "refine.api_key 已配置（值已隐藏）")
-    return ("API Key", False, "refine.api_key 为空或未配置，语音识别后处理将不可用")
+    # v5.17（N-m3）：与 main 语义一致——配置文件为空时回退 DEEPSEEK_API_KEY
+    api_key, _ = resolve_keys(data)
+    if api_key.strip():
+        return ("API Key", True, "refine.api_key 或 DEEPSEEK_API_KEY 已配置（值已隐藏）")
+    return ("API Key", False, "refine.api_key 为空且未设置 DEEPSEEK_API_KEY，语音识别后处理将不可用")
 
 
 def _check_dict_file() -> tuple[str, bool, str]:

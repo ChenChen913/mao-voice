@@ -16,10 +16,10 @@ DEFAULT_CONFIG = {
     "settings_hotkey": "f8",
     "asr": {
         "engine": "whisper",
-        # 默认 small（约 460MB）：medium(约 1.5GB) 首次运行才下载，网络慢时长时间无响应；
-        # small 下载快、加载快，中文效果可接受
-        "model": "small",
-        "language": "zh",
+        # v5.17（N-m4）：与 config.example.json 对齐——默认指向本地模型相对路径
+        # （medium），避免"默认 small 会联网 HuggingFace"与 example 拷贝后行为不一致
+        "model": "models/faster-whisper-medium",
+        "language": None,  # None=自动检测（中英混杂友好）
         "cloud": {"base_url": "", "api_key": "", "model": "whisper-1"},
     },
     # v5.16（M4）：最大录音时长（秒，0=不限），防热键误触/静音会话无限占用内存

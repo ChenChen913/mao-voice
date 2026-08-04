@@ -157,6 +157,17 @@ def test_max_duration_triggers_finish(tmp_path, monkeypatch):
     assert calls == [1]
 
 
+def test_poll_recording_survives_recorder_none(tmp_path):
+    """N-M1：recorder 为 None 时轮询不崩溃，且继续调度下一次。"""
+    app = _make_app(tmp_path)
+    app.recorder = None
+    app.state = "RECORDING"
+
+    app._poll_recording()  # 不应抛 AttributeError
+
+    assert len(app.root.after_calls) == 1
+
+
 def test_show_toast_uses_preview_sec(tmp_path):
     """C7：ui.preview_sec 已接线到 toast 时长，不再是死配置。"""
     app = _make_app(tmp_path)
