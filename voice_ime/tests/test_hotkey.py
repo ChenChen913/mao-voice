@@ -6,7 +6,7 @@ import time
 import pytest
 from pynput import keyboard
 
-from hotkey import HotkeyListener
+from hotkey import HotkeyListener, parse_key
 
 
 def test_debounce_ignores_fast_double_press(monkeypatch):
@@ -26,6 +26,22 @@ def test_debounce_ignores_fast_double_press(monkeypatch):
 def test_alt_r_accepts_altgr():
     h = HotkeyListener("alt_r", lambda: None)
     assert keyboard.Key.alt_gr in h.keys
+
+
+def test_parse_key_valid_and_invalid():
+    """M6：非法/未知键名返回 None，不再生成永远匹配不上的键。"""
+    assert parse_key("f9") == keyboard.Key.f9
+    assert parse_key("alt_r") == keyboard.Key.alt_r
+    assert parse_key("a") is not None
+    assert parse_key("bogus") is None
+    assert parse_key("ctrl+alt+x") is None
+    assert parse_key("") is None
+    assert parse_key(None) is None
+
+
+def test_invalid_key_constructor_raises():
+    with pytest.raises(ValueError):
+        HotkeyListener("bogus", lambda: None)
 
 
 def test_start_stop_lifecycle():

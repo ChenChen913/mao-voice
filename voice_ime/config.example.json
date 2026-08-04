@@ -14,7 +14,8 @@
   },
   "recorder": {
     "auto_stop_silence_sec": 0,
-    "device": ""
+    "device": "",
+    "max_duration_sec": 300
   },
   "history": {
     "enabled": false,
@@ -31,5 +32,9 @@
   "ui": {
     "preview_sec": 1.5,
     "max_chars": 300
+  },
+  "inject": {
+    "restore_delay_sec": 0.2,
+    "require_same_focus": true
   }
 }

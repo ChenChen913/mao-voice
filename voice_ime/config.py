@@ -22,7 +22,8 @@ DEFAULT_CONFIG = {
         "language": "zh",
         "cloud": {"base_url": "", "api_key": "", "model": "whisper-1"},
     },
-    "recorder": {"auto_stop_silence_sec": 0, "device": ""},
+    # v5.16（M4）：最大录音时长（秒，0=不限），防热键误触/静音会话无限占用内存
+    "recorder": {"auto_stop_silence_sec": 0, "device": "", "max_duration_sec": 300},
     # v5.13.4：输入历史记录（内存队列 + JSON 落盘）
     # v5.16（C2）：默认关闭——语音转写原文与润色结果明文落盘属于隐私数据，
     # 用户明确开启前不写入
@@ -36,6 +37,8 @@ DEFAULT_CONFIG = {
         "timeout_sec": 30,
     },
     "ui": {"preview_sec": 1.5, "max_chars": 300},
+    # v5.16（M2/B7）：注入行为配置
+    "inject": {"restore_delay_sec": 0.2, "require_same_focus": True},
 }
 
 

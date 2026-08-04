@@ -33,8 +33,32 @@ def test_settings_window_tabs_and_save(tmp_path, monkeypatch, tk_app_root):
 
     assert win.var_hotkey.get() == "alt_r"
     win.var_hotkey.set("f9")
+    win.var_cycle.set("f10")
+    win.var_settings_hk.set("f11")
     win.save()
     assert app.saved is True
     assert cfg["hotkey"] == "f9"
+    assert cfg["refine_cycle_hotkey"] == "f10"
+    assert cfg["settings_hotkey"] == "f11"
 
+    win.root.destroy()
+
+
+def test_settings_window_rejects_duplicate_hotkeys(tmp_path, monkeypatch, tk_app_root):
+    """M6：三个热键重复时拒绝保存。"""
+    errors = []
+    monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: errors.append(a))
+
+    cfg = config.load_config(str(tmp_path / "c.json"))
+    app = FakeApp(cfg, HistoryStore(str(tmp_path / "h.json")))
+    win = SettingsWindow(app, parent=tk_app_root)
+    win.root.update()
+
+    win.var_hotkey.set("f9")
+    win.var_cycle.set("f9")
+    win.var_settings_hk.set("f8")
+    win.save()
+
+    assert errors, "应弹出错误提示"
+    assert app.saved is False, "重复热键不应保存"
     win.root.destroy()

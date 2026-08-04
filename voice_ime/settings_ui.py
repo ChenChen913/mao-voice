@@ -12,6 +12,8 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from hotkey import HOTKEY_LABELS
+
 try:
     import pystray
     from PIL import Image, ImageDraw
@@ -53,8 +55,11 @@ class TrayIcon:
         if pystray is None:
             logging.warning("pystray 未安装，托盘功能不可用")
             return
+        # v5.16（M6）：托盘文案从配置动态生成，避免换热键后仍显示"右 Alt"
+        hotkey_name = self.app.cfg.get("hotkey", "alt_r")
+        hotkey_label = HOTKEY_LABELS.get(hotkey_name, hotkey_name)
         menu = pystray.Menu(
-            pystray.MenuItem("开始/停止录音（右 Alt）", lambda: self.app.on_toggle()),
+            pystray.MenuItem("开始/停止录音（{}）".format(hotkey_label), lambda: self.app.on_toggle()),
             pystray.MenuItem("打开设置", lambda: self.app.open_settings()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", lambda: self.app.exit_app()),
@@ -133,6 +138,20 @@ class SettingsWindow:
         self.var_auto_stop = self._spin(f, "静音自动停止（秒，0=关闭）", 0, 30, self.cfg.get("recorder", {}).get("auto_stop_silence_sec", 0), 4)
         self.var_preview = self._spin(f, "状态提示时长（秒）", 0.5, 10.0, self.cfg.get("ui", {}).get("preview_sec", 1.5), 5)
         self.var_device = self._device_combo(f, 6)
+        self.var_inject_delay = self._spin(
+            f, "注入恢复延迟（秒，慢应用调大）", 0.1, 2.0,
+            self.cfg.get("inject", {}).get("restore_delay_sec", 0.2), 7,
+        )
+        self.var_max_duration = self._spin(
+            f, "最大录音时长（秒，0=不限）", 0, 3600,
+            self.cfg.get("recorder", {}).get("max_duration_sec", 300), 8,
+        )
+        self.var_require_focus = tk.BooleanVar(
+            value=bool(self.cfg.get("inject", {}).get("require_same_focus", True))
+        )
+        ttk.Checkbutton(
+            f, text="注入前要求焦点未切换（防止文字粘贴到别的窗口）", variable=self.var_require_focus
+        ).grid(row=9, column=0, columnspan=2, sticky="w", padx=8, pady=4)
 
     def _build_model(self):
         f = self.tab_model
@@ -233,12 +252,21 @@ class SettingsWindow:
 
     # ---------- 动作 ----------
     def save(self):
+        # v5.16（M6）：三个热键查重，避免保存后重启时静默跳过
+        hotkeys = {self.var_hotkey.get(), self.var_cycle.get(), self.var_settings_hk.get()}
+        if len(hotkeys) < 3:
+            messagebox.showerror(
+                "保存失败", "录音/设置/润色切换三个热键必须互不相同，请修改后重试",
+                parent=self.root,
+            )
+            return
         r = self.cfg.setdefault("recorder", {})
         asr = self.cfg.setdefault("asr", {})
         refine = self.cfg.setdefault("refine", {})
         ui = self.cfg.setdefault("ui", {})
         cloud = asr.setdefault("cloud", {})
         history = self.cfg.setdefault("history", {})
+        inject = self.cfg.setdefault("inject", {})
         try:
             self.cfg["hotkey"] = self.var_hotkey.get()
             self.cfg["refine_cycle_hotkey"] = self.var_cycle.get()
@@ -259,6 +287,9 @@ class SettingsWindow:
             refine["level"] = self.var_level.get()
             refine["timeout_sec"] = int(float(self.var_timeout.get()))
             history["enabled"] = bool(self.var_history_enabled.get())
+            inject["restore_delay_sec"] = float(self.var_inject_delay.get())
+            inject["require_same_focus"] = bool(self.var_require_focus.get())
+            r["max_duration_sec"] = int(float(self.var_max_duration.get()))
             self.app.save_cfg()
             messagebox.showinfo("保存成功", "设置已保存（录音热键等需重启生效）", parent=self.root)
         except Exception as e:

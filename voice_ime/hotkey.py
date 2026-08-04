@@ -20,6 +20,37 @@ _SPECIAL = {
     "enter": keyboard.Key.enter, "esc": keyboard.Key.esc,
 }
 
+# 热键配置名 → 用户可读文案（托盘/悬浮窗提示用）
+HOTKEY_LABELS = {
+    "alt_r": "右 Alt",
+    "alt_l": "左 Alt",
+    "ctrl_r": "右 Ctrl",
+    "ctrl_l": "左 Ctrl",
+    "shift_r": "右 Shift",
+    "shift_l": "左 Shift",
+    "f1": "F1", "f2": "F2", "f3": "F3", "f4": "F4", "f5": "F5", "f6": "F6",
+    "f7": "F7", "f8": "F8", "f9": "F9", "f10": "F10", "f11": "F11", "f12": "F12",
+    "caps_lock": "Caps Lock", "space": "空格", "enter": "回车", "esc": "Esc",
+}
+
+
+def parse_key(key_name):
+    """把配置键名解析为 pynput 键对象；未知/非法返回 None（M6）。
+
+    注意：pynput 的 KeyCode.from_char 对任意字符串都不抛异常（如 "bogus" 会生成
+    一个永远匹配不上的 KeyCode），因此这里必须显式校验：白名单特殊键 + 单字符键。
+    """
+    if not isinstance(key_name, str) or not key_name:
+        return None
+    if key_name in _SPECIAL:
+        return _SPECIAL[key_name]
+    if len(key_name) != 1:
+        return None
+    try:
+        return keyboard.KeyCode.from_char(key_name)
+    except Exception:
+        return None
+
 # 防抖窗口（秒）：两次按下间隔小于该值视为双击误触，直接忽略。
 # 原因：toggle 模式下"按一下=切换一次"，Windows 的键盘自动重复
 # 或用户快速双击都会触发多次 on_press，200ms 防抖可保证一次单击只切换一次。
@@ -35,7 +66,10 @@ class HotkeyListener:
     def __init__(self, key_name, on_toggle):
         # 主键 + 别名：Windows 上右 Alt 常被 pynput 报告为 Key.alt_gr（AltGr），
         # 因此 alt_r 配置需要同时匹配两者，否则用户按右 Alt 永远无法触发。
-        self.keys = {_SPECIAL.get(key_name, keyboard.KeyCode.from_char(key_name))}
+        key = parse_key(key_name)
+        if key is None:
+            raise ValueError("未知/不支持的热键: {!r}".format(key_name))
+        self.keys = {key}
         if key_name == "alt_r":
             self.keys.add(keyboard.Key.alt_gr)
         self.on_toggle = on_toggle

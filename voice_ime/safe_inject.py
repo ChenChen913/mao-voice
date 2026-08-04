@@ -37,6 +37,11 @@ _TEXT_FORMATS = {CF_UNICODETEXT, CF_TEXT}
 _BITMAP_FORMATS = {CF_BITMAP, CF_DIB, CF_DIBV5}
 _FILE_FORMATS = {CF_HDROP}
 
+# v5.16（M2）：Ctrl+V 后到恢复剪贴板之间的等待秒数。
+# 原固定 25ms 太短：慢应用（Electron/远程桌面/大型 IDE）尚未读取剪贴板时内容已被换回，
+# 导致实际粘贴失败却返回成功。默认 200ms，可在配置 inject.restore_delay_sec 调整。
+DEFAULT_RESTORE_DELAY_SEC = 0.2
+
 # -- GlobalAlloc 参数 --
 GMEM_MOVEABLE = 0x0002      # 可移动全局内存
 GMEM_ZEROINIT = 0x0040      # 分配时清零
@@ -479,11 +484,28 @@ def _check_uipi_block() -> tuple[bool, str]:
         kernel32.CloseHandle(hproc)
 
 
+def _foreground_root_hwnd() -> int:
+    """返回当前前台根窗口的 HWND；获取失败返回 0（B7）。"""
+    try:
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return 0
+        root_hwnd = user32.GetAncestor(hwnd, GA_ROOT)
+        return int(root_hwnd) if root_hwnd else int(hwnd)
+    except Exception:
+        return 0
+
+
 # ============================================================================
 # 公共接口
 # ============================================================================
 
-def inject(text: str) -> tuple[bool, str]:
+def inject(
+    text: str,
+    restore_delay_sec: float = DEFAULT_RESTORE_DELAY_SEC,
+    expected_hwnd: int = 0,
+    require_same_focus: bool = True,
+) -> tuple[bool, str]:
     """
     将文本注入当前聚焦窗口（剪贴板 + 模拟 Ctrl+V）。
 
@@ -518,6 +540,13 @@ def inject(text: str) -> tuple[bool, str]:
     blocked, reason = _check_uipi_block()
     if blocked:
         return False, f"UIPI 拦截：{reason}"
+
+    # ---- 焦点校验（B7）：录制→转写→润色耗时数秒，用户可能已切换到别的窗口。
+    # 若前台窗口已变化，直接取消注入且不碰剪贴板；无法获取前台窗口时放行（fail-open）。
+    if require_same_focus and expected_hwnd:
+        current_hwnd = _foreground_root_hwnd()
+        if current_hwnd and current_hwnd != expected_hwnd:
+            return False, "前台窗口已切换，已取消注入（文本未粘贴）"
 
     # ---- 步骤 1：保存当前剪贴板所有格式 ----
     original_seq, saved = _save_all_clipboard_formats()
@@ -584,9 +613,8 @@ def inject(text: str) -> tuple[bool, str]:
         time.sleep(0.002)
         keyboard.release(Key.ctrl)
 
-        # 再等 25ms 让目标应用的粘贴逻辑完成
-        # 总窗口期约 5ms(剪贴板设文本) + 15ms(按键) + 25ms(粘贴等待) ≈ 45ms
-        time.sleep(0.025)
+        # 等待目标应用完成粘贴后再恢复剪贴板；慢应用需要更长窗口期（M2）
+        time.sleep(max(0.0, restore_delay_sec))
     except Exception as e:
         # 按键模拟异常（极少发生，如 pynput 后端初始化失败）
         # 无论粘贴是否成功，都要尝试恢复剪贴板

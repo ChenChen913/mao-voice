@@ -10,8 +10,8 @@ import tkinter as tk
 import logging
 import os
 
-from config import build_words_block, ensure_defaults, load_config, save_config
-from hotkey import HotkeyListener
+from config import build_words_block, ensure_defaults, load_config, resolve_keys, save_config
+from hotkey import HOTKEY_LABELS, HotkeyListener, parse_key
 from recorder import Recorder
 from asr import WhisperEngine
 from refiner import Refiner
@@ -22,26 +22,27 @@ from settings_ui import SettingsWindow, TrayIcon
 
 MIN_DURATION = 0.5
 
-# 热键配置名 → 悬浮窗可读文案（默认 alt_r 显示"右 Alt"）
-_HOTKEY_LABEL = {
-    "alt_r": "右 Alt",
-    "alt_l": "左 Alt",
-    "ctrl_r": "右 Ctrl",
-    "ctrl_l": "左 Ctrl",
-    "shift_r": "右 Shift",
-    "shift_l": "左 Shift",
-}
+
+def _current_root_hwnd():
+    """记录录音结束时前台根窗口句柄，供注入前焦点校验（B7）。失败返回 0。"""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return 0
+        root_hwnd = user32.GetAncestor(hwnd, 2)  # GA_ROOT
+        return int(root_hwnd) if root_hwnd else int(hwnd)
+    except Exception:
+        return 0
 
 
 def make_asr(cfg):
     """按配置选择 ASR 引擎：云端（需配置）> 本地 whisper。"""
     a = cfg.get("asr", {})
     cloud = a.get("cloud", {})
-    cloud_key = (
-        cloud.get("api_key")
-        or os.environ.get("ASR_API_KEY")
-        or os.environ.get("DEEPSEEK_API_KEY", "")
-    )
+    # v5.16（M3）：统一走 resolve_keys（配置为空时回退环境变量，且不写回 cfg）
+    _, cloud_key = resolve_keys(cfg)
     if a.get("engine") == "cloud" and cloud_key and cloud.get("base_url"):
         from cloud_asr import CloudASREngine
         return CloudASREngine(
@@ -82,6 +83,7 @@ class App:
         self._ui_queue = queue.Queue()
         self._toast_text = None      # 悬浮窗短暂提示文本（如润色强度切换）
         self._toast_until = 0.0      # 提示到期时间（monotonic）
+        self._target_hwnd = 0        # 录音结束时的前台窗口句柄（B7 焦点校验）
 
     # ---------- 热键事件（pynput 线程） ----------
     def on_toggle(self):
@@ -163,7 +165,7 @@ class App:
     def _start_recording(self):
         self._last_draft = ""
         self._last_rms = 0.0
-        label = _HOTKEY_LABEL.get(self.cfg["hotkey"], self.cfg["hotkey"])
+        label = HOTKEY_LABELS.get(self.cfg["hotkey"], self.cfg["hotkey"])
         with self._lock:
             if self.state != "RECORDING":
                 return  # 极快速双击时已被并发的结束操作抢占 → 放弃启动，避免悬挂录音
@@ -228,6 +230,8 @@ class App:
                 # 用户再按一次即可；避免对未启动的 recorder 空转
                 return
             self.state = "PROCESSING"
+            # B7：记录结束瞬间的前台窗口，注入前校验焦点未切换
+            self._target_hwnd = _current_root_hwnd()
         threading.Thread(target=self._process, daemon=True).start()
 
     # ---------- 录音期间增量草稿 ----------
@@ -251,13 +255,21 @@ class App:
     # ---------- 静音自动停止（主线程轮询） ----------
     def _poll_recording(self):
         auto_stop = self.cfg.get("recorder", {}).get("auto_stop_silence_sec", 0)
-        if auto_stop > 0:
-            with self._lock:
-                recording = self.state == "RECORDING"
-            # v5.11：active 守卫——新 Recorder 创建完成前，不读上一会话已停止的 recorder
-            if recording and self.recorder is not None and self.recorder.active:
+        max_duration = self.cfg.get("recorder", {}).get("max_duration_sec", 0) or 0
+        with self._lock:
+            recording = self.state == "RECORDING"
+        # v5.11：active 守卫——新 Recorder 创建完成前，不读上一会话已停止的 recorder
+        if recording and self.recorder is not None and self.recorder.active:
+            if auto_stop > 0:
                 try:
                     if self.recorder.vad.silence_seconds() >= auto_stop:
+                        self._finish_recording()
+                except Exception:
+                    pass
+            # v5.16（M4）：最大录音时长兜底，防误触/静音会话无限录音占用内存
+            if max_duration > 0:
+                try:
+                    if self.recorder.duration >= max_duration:
                         self._finish_recording()
                 except Exception:
                     pass
@@ -265,6 +277,7 @@ class App:
 
     # ---------- 处理管线（worker 线程） ----------
     def _process(self):
+        recorder = None
         try:
             # 在 try 内获取 recorder：即使为 None（异常路径），finally 仍会复位状态，
             # 不会像原实现那样因 stop() 抛异常而把应用卡死在 PROCESSING
@@ -305,7 +318,13 @@ class App:
             # v5 起不再在浮窗预览转写内容：润色完成后直接注入输入框
             # （用户反馈"先显示再注入"是多余步骤；状态提示仍保留在浮窗）
             self._post("INJECTING", "⬇️ 注入中…")
-            ok, reason = safe_inject.inject(final)
+            inject_cfg = self.cfg.get("inject", {})
+            ok, reason = safe_inject.inject(
+                final,
+                restore_delay_sec=inject_cfg.get("restore_delay_sec", 0.2),
+                expected_hwnd=self._target_hwnd,
+                require_same_focus=inject_cfg.get("require_same_focus", True),
+            )
             if not ok:
                 self._post("ERROR", "注入失败：{}".format(reason))
                 time.sleep(2.5)
@@ -328,6 +347,10 @@ class App:
             # 与这里的归零互为冗余、无副作用——注释如实说明，避免误导为"只有 worker 归零"
             self._last_rms = 0.0
             with self._lock:
+                # v5.16（M4 增强）：处理结束即释放旧 Recorder 引用，
+                # 让 _all_parts 中的全程音频可被 GC，而不是一直驻留到下次录音
+                if recorder is not None and self.recorder is recorder:
+                    self.recorder = None
                 self.state = "IDLE"
 
     # ---------- UI 更新（主线程轮询） ----------
@@ -380,20 +403,38 @@ def main():
     # 后台预热 ASR 模型：避免第一次按键时才下载/加载（首次可能耗时很久）
     if hasattr(app.asr, "warmup"):
         threading.Thread(target=app.asr.warmup, daemon=True).start()
-    hotkey = HotkeyListener(cfg["hotkey"], app.on_toggle)
+    hotkey_name = cfg["hotkey"]
+    if parse_key(hotkey_name) is None:
+        # v5.16（M6）：手改配置为非法热键时回退默认，而不是静默失效/崩溃
+        print("[警告] 录音热键 {} 无效，已回退默认 alt_r".format(hotkey_name))
+        hotkey_name = "alt_r"
+        cfg["hotkey"] = hotkey_name
+    hotkey = HotkeyListener(hotkey_name, app.on_toggle)
     hotkey.start()
     settings_hotkey = None
     settings_key = cfg.get("settings_hotkey", "f8")
-    if settings_key and settings_key not in (cfg["hotkey"], cfg.get("refine_cycle_hotkey")):
+    if settings_key:
+        if parse_key(settings_key) is None:
+            print("[警告] 设置热键 {} 无效，已回退默认 f8".format(settings_key))
+            settings_key = "f8"
+    if settings_key and settings_key != hotkey_name:
         settings_hotkey = HotkeyListener(settings_key, app.open_settings)
         settings_hotkey.start()
         print("[设置] 按一下 {} 打开设置窗口".format(settings_key))
+    elif settings_key:
+        print("[警告] 设置热键 {} 与录音热键冲突，未启动（默认 f8 可恢复）".format(settings_key))
     refine_hotkey = None
     cycle_hotkey = cfg.get("refine_cycle_hotkey", "f9")
-    if cycle_hotkey and cycle_hotkey != cfg["hotkey"]:
+    if cycle_hotkey:
+        if parse_key(cycle_hotkey) is None:
+            print("[警告] 润色切换热键 {} 无效，已回退默认 f9".format(cycle_hotkey))
+            cycle_hotkey = "f9"
+    if cycle_hotkey and cycle_hotkey != hotkey_name and cycle_hotkey != settings_key:
         refine_hotkey = HotkeyListener(cycle_hotkey, app.on_cycle_refine)
         refine_hotkey.start()
         print("[设置] 按一下 {} 循环切换润色强度（保守纠错/轻度规整/完整规整）".format(cycle_hotkey))
+    elif cycle_hotkey:
+        print("[警告] 润色切换热键 {} 与录音/设置热键冲突，未启动（默认 f9 可恢复）".format(cycle_hotkey))
     auto_stop = cfg.get("recorder", {}).get("auto_stop_silence_sec", 0)
     print("[就绪] 按一下 {} 开始录音，再按一下结束并自动输入。右键悬浮窗可退出。".format(cfg["hotkey"]))
     if auto_stop > 0:
@@ -408,6 +449,14 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        # v5.16（M1）：退出时若仍在录音，先停止录音流，避免 sounddevice 音频流与
+        # PortAudio 回调线程残留在进程里
+        try:
+            with app._lock:
+                if app.state == "RECORDING" and app.recorder is not None:
+                    app.recorder.stop()
+        except Exception:
+            pass
         hotkey.stop()
         if settings_hotkey:
             settings_hotkey.stop()
