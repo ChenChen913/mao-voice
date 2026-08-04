@@ -205,6 +205,7 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 - **v5.13.6 小修清单**：doctor 拒绝组合键（与单键实现对齐）；各模块自检适配 GBK 控制台；相对模型路径基于 voice_ime 解析；API Key 支持 DEEPSEEK_API_KEY 环境变量兜底
 - **v5.14 阿里复审第 12~13 轮**：9 个 high 全部修复——orchestrate 工作区缺失跳过与真实路径校验、模型下载 .part 原子改名、热键队列锁、设置窗下载线程安全、环境变量密钥不落盘（resolve_keys）、热键 stop 超时可重启、测试 64 位句柄；另修 medium：词库原子写、.env.example 白名单、词库重试缓存、CI 加固等，详见 `voice_ime/OCR审查报告.md`
 - **v5.15 修复 CI 失败**：Overlay 改为复用传入的 Tk 根窗口（消除双根设计，修复 GitHub Actions 下 `tcl_findLibrary` 报错）；UI 测试改用会话级共享 Tk 根，避免创建/销毁循环导致的不稳定；单测 59 项全部通过
+- **v5.16 深度审核修复（2026-08-04）**：① ASR 推理串行化锁（草稿/整段转写互斥）；② 隐私加固——API Key 输入框掩码、历史记录默认关闭并加明文风险提示、history.json/result.txt 等加入 .gitignore；③ 注入链路——恢复延迟可配置（默认 200ms）、注入前校验前台窗口未切换；④ 录音最大时长（默认 300s，0=不限）与处理结束后释放音频内存；⑤ 热键防御（非法/冲突回退并警告、设置页查重、托盘文案动态化）；⑥ resolve_keys 统一接线、云端 ASR 尊重 language 配置、提示词声明用户输入为纯数据；⑦ 落盘统一 fsync、recorder 锁内取流、refiner 超时容错、死配置接线；⑧ 删除死代码 draft_smoother 与 _last_draft；⑨ 测试补强（safe_inject 恢复路径/并发串行化/状态机）至 77 项，移除 pyperclip 死依赖并锁定 faster-whisper/ctranslate2 主版本
 
 </details>
 
