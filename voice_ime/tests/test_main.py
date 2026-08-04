@@ -52,6 +52,17 @@ class FakeRefiner:
     enabled = False
 
 
+class _FakeThread:
+    """捕获 target 但不真正启动的假线程（用于状态机测试）。"""
+
+    def __init__(self, target, daemon=False):
+        self.target = target
+        self.daemon = daemon
+
+    def start(self):
+        pass
+
+
 def _make_app(tmp_path):
     cfg = config.load_config(str(tmp_path / "c.json"))
     return main.App(cfg, FakeOverlay(), FakeRoot())
@@ -154,3 +165,21 @@ def test_show_toast_uses_preview_sec(tmp_path):
     kind, payload = app._ui_queue.get_nowait()
     assert kind == "toast"
     assert payload[1] == 2.5
+
+
+def test_finish_recording_starts_single_worker(tmp_path, monkeypatch):
+    """D2：重复调用 _finish_recording 只启动一个 worker（状态机防重复）。"""
+    app = _make_app(tmp_path)
+    app.recorder = FakeRecorder(duration=1.0)
+    app.state = "RECORDING"
+    started = []
+    monkeypatch.setattr(
+        main.threading, "Thread",
+        lambda target, daemon=False: started.append(target) or _FakeThread(target, daemon),
+    )
+
+    app._finish_recording()
+    app._finish_recording()
+
+    assert len(started) == 1
+    assert app.state == "PROCESSING"

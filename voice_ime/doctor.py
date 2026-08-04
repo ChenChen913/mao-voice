@@ -90,7 +90,8 @@ def _check_python(version_min: tuple[int, ...] = (3, 10)) -> tuple[str, bool, st
 
 def _check_dependencies() -> tuple[str, bool, str]:
     """2. 关键依赖完整性"""
-    modules = ["pynput", "sounddevice", "numpy", "faster_whisper", "requests", "pyperclip"]
+    # v5.16（D4）：pyperclip 已从依赖中移除（项目使用 ctypes 操作剪贴板）
+    modules = ["pynput", "sounddevice", "numpy", "faster_whisper", "requests"]
     missing: list[str] = []
     for mod in modules:
         try:
@@ -107,7 +108,7 @@ def _check_dependencies() -> tuple[str, bool, str]:
             False,
             f"缺少: {', '.join(missing)}；请运行 pip install {' '.join(pip_names)}",
         )
-    return ("依赖完整性", True, "6 个关键依赖全部可用")
+    return ("依赖完整性", True, "5 个关键依赖全部可用")
 
 
 def _load_config() -> tuple[dict | None, str | None]:

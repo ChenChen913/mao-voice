@@ -66,3 +66,33 @@ def test_inject_aborts_when_focus_changed(monkeypatch):
     assert ok is False
     assert "前台窗口已切换" in msg
     assert clipboard_calls == [], "焦点不一致时不应打开/修改剪贴板"
+
+
+def test_restore_skipped_when_sequence_changed(monkeypatch):
+    """D1：注入期间剪贴板被外部修改 → 跳过恢复并保留备份供调用方释放。"""
+    saved = [(safe_inject.CF_UNICODETEXT, 11)]
+    monkeypatch.setattr(safe_inject.user32, "GetClipboardSequenceNumber", lambda: 999)
+
+    ok, msg = safe_inject._restore_clipboard_from_saved(saved, original_seq=100)
+
+    assert ok is False
+    assert "外部修改" in msg
+    assert saved == [(safe_inject.CF_UNICODETEXT, 11)]
+
+
+def test_restore_partial_failure_frees_remaining_and_clears(monkeypatch):
+    """D1：恢复中途 SetClipboardData 失败 → 剩余句柄释放、saved 清空（防 double-free）。"""
+    saved = [(safe_inject.CF_UNICODETEXT, 11), (safe_inject.CF_UNICODETEXT, 12)]
+    monkeypatch.setattr(safe_inject, "_open_clipboard", lambda *a: True)
+    monkeypatch.setattr(safe_inject.user32, "GetClipboardSequenceNumber", lambda: 100)
+    monkeypatch.setattr(safe_inject.user32, "EmptyClipboard", lambda: True)
+    monkeypatch.setattr(safe_inject.user32, "SetClipboardData", lambda fmt, h: False)
+    freed = []
+    monkeypatch.setattr(safe_inject.kernel32, "GlobalFree", lambda h: freed.append(h) or 0)
+
+    ok, msg = safe_inject._restore_clipboard_from_saved(saved, original_seq=100)
+
+    assert ok is False
+    assert "SetClipboardData 失败" in msg
+    assert saved == [], "失败后必须清空 saved，防止调用方 double-free"
+    assert freed == [11, 12]

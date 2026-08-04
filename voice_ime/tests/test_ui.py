@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""悬浮窗波形绘制单元测试（需要可用的 Tk 环境，否则跳过）。"""
+"""悬浮窗波形绘制单元测试。
+
+说明（D3）：真实 Tk 绘制用例在无显示环境下由 conftest 的 tk_app_root fixture
+自动跳过——该缺口已被接受（见修复 SPEC D3）；本文件另含不依赖 Tk 的静态用例。
+"""
 import tkinter as tk
 
 import pytest
@@ -68,3 +72,11 @@ def test_max_chars_config_used(tk_app_root):
     ]
     assert texts, "应绘制出文本"
     assert any(t.endswith("…") and len(t) <= 13 for t in texts)
+
+
+def test_state_config_has_required_keys():
+    """D3：不依赖 Tk 的静态用例——所有状态配置都包含必需键。"""
+    from ui import STATE_CONFIG
+
+    for state, cfg in STATE_CONFIG.items():
+        assert {"text", "color", "w", "h"} <= set(cfg), "状态 {} 缺少必需键".format(state)

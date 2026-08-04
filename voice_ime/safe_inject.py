@@ -8,7 +8,7 @@
   4. 检测前台窗口是否以管理员权限运行，提前预警 UIPI 拦截而非静默失败
   5. 原剪贴板为非文本时不破坏，恢复失败时明确报告原因
 
-依赖：pynput, pyperclip, ctypes (均为 Windows 原生可用)
+依赖：pynput, ctypes (均为 Windows 原生可用)
 平台：纯 Windows / Python 3.13
 """
 
