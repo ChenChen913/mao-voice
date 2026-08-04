@@ -162,6 +162,11 @@ class WhisperEngine:
         # draft 线程、_process worker 线程并发调用：check-then-act 竞态会导致双份模型/词库，
         # 用可重入锁守护（_initial_prompt_text 内部会再调 _load_glossary，故需 RLock）
         self._load_lock = threading.RLock()
+        # v5.16（C1）：推理串行化锁。faster-whisper 的 WhisperModel 未声明线程安全，
+        # 草稿增量转写（_on_draft）与整段转写（_process）可能并发调用 transcribe，
+        # 并发推理轻则结果错乱、重则崩溃。用同一把 RLock 包住所有 _transcribe_once 调用，
+        # 草稿与整段天然互斥（含 GPU→CPU 回退与重试路径）。
+        self._infer_lock = threading.RLock()
 
     # ---------- 词库热词 ----------
     def _load_glossary(self):
@@ -345,28 +350,29 @@ class WhisperEngine:
         self._load()
         if audio is None or len(audio) == 0:
             return ""
-        try:
-            return self._transcribe_once(audio, use_vad=True)
-        except Exception as e:
-            # 推理异常：仅当确实是 CUDA/ctranslate2 运行库错误时才回退 CPU 重试
-            # （回退会销毁已加载的 GPU 模型，非 GPU 错误（如坏音频的 ValueError）
-            # 触发回退会永久降级 CPU 并掩盖真实根因）；VAD 异常时去掉 VAD 再试。
-            # 被吞掉的中间错误全部记日志：原实现静默丢弃，会掩盖真实缺陷且难以复现
-            if self.device == "cuda" and _is_gpu_error(e):
-                self._fallback_to_cpu(e)
-                try:
-                    return self._transcribe_once(audio, use_vad=True)
-                except Exception as e2:
-                    logging.warning(
-                        "GPU→CPU 回退后转写仍失败（继续关闭 VAD 重试）：%s", e2,
-                        exc_info=True,
-                    )
+        with self._infer_lock:
             try:
-                return self._transcribe_once(audio, use_vad=False)
-            except Exception as e2:
-                # 兜底：抛带可读上下文的异常（含 GPU 回退原因），UI 可显示"转写失败：原因"
-                hint = self._gpu_fallback_reason or "转写失败（设备 {}）".format(self.device)
-                raise RuntimeError("{}：{}".format(hint, e2)) from e2
+                return self._transcribe_once(audio, use_vad=True)
+            except Exception as e:
+                # 推理异常：仅当确实是 CUDA/ctranslate2 运行库错误时才回退 CPU 重试
+                # （回退会销毁已加载的 GPU 模型，非 GPU 错误（如坏音频的 ValueError）
+                # 触发回退会永久降级 CPU 并掩盖真实根因）；VAD 异常时去掉 VAD 再试。
+                # 被吞掉的中间错误全部记日志：原实现静默丢弃，会掩盖真实缺陷且难以复现
+                if self.device == "cuda" and _is_gpu_error(e):
+                    self._fallback_to_cpu(e)
+                    try:
+                        return self._transcribe_once(audio, use_vad=True)
+                    except Exception as e2:
+                        logging.warning(
+                            "GPU→CPU 回退后转写仍失败（继续关闭 VAD 重试）：%s", e2,
+                            exc_info=True,
+                        )
+                try:
+                    return self._transcribe_once(audio, use_vad=False)
+                except Exception as e2:
+                    # 兜底：抛带可读上下文的异常（含 GPU 回退原因），UI 可显示"转写失败：原因"
+                    hint = self._gpu_fallback_reason or "转写失败（设备 {}）".format(self.device)
+                    raise RuntimeError("{}：{}".format(hint, e2)) from e2
 
     def warmup(self):
         """后台预热：提前加载模型，避免第一次使用时才下载/加载；异常不抛出但记日志。"""

@@ -139,7 +139,7 @@ class SettingsWindow:
         self.var_engine = self._combo(f, "识别引擎", ["whisper", "cloud"], self.cfg.get("asr", {}).get("engine", "whisper"), 0)
         self.var_model = self._entry(f, "本地模型路径（相对 voice_ime/）", self.cfg.get("asr", {}).get("model", "small"), 1)
         self.var_cloud_url = self._entry(f, "云端 Base URL", self.cfg.get("asr", {}).get("cloud", {}).get("base_url", ""), 2)
-        self.var_cloud_key = self._entry(f, "云端 API Key", self.cfg.get("asr", {}).get("cloud", {}).get("api_key", ""), 3)
+        self.var_cloud_key = self._secret_entry(f, "云端 API Key", self.cfg.get("asr", {}).get("cloud", {}).get("api_key", ""), 3)
         self.var_cloud_model = self._entry(f, "云端模型名", self.cfg.get("asr", {}).get("cloud", {}).get("model", "whisper-1"), 4)
         ttk.Button(f, text="一键下载模型（ModelScope）", command=self._download_model).grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=6)
         self.download_label = ttk.Label(f, text="下载约 1.5GB（medium）/ 480MB（small），完成后自动更新配置")
@@ -151,7 +151,7 @@ class SettingsWindow:
         self.var_refine_enabled = tk.BooleanVar(value=bool(refine.get("enabled", True)))
         ttk.Checkbutton(f, text="启用 LLM 保守纠错", variable=self.var_refine_enabled).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=4)
         self.var_llm_url = self._entry(f, "Base URL", refine.get("base_url", "https://api.deepseek.com/v1"), 1)
-        self.var_llm_key = self._entry(f, "API Key（留空读取 DEEPSEEK_API_KEY）", refine.get("api_key", ""), 2)
+        self.var_llm_key = self._secret_entry(f, "API Key（留空读取 DEEPSEEK_API_KEY）", refine.get("api_key", ""), 2)
         self.var_llm_model = self._entry(f, "模型", refine.get("model", "deepseek-chat"), 3)
         self.var_level = self._combo(f, "润色强度", LEVEL_CHOICES, refine.get("level", "conservative"), 4)
         self.var_timeout = self._spin(f, "超时（秒）", 5, 120, refine.get("timeout_sec", 30), 5)
@@ -170,10 +170,22 @@ class SettingsWindow:
 
     def _build_history(self):
         f = self.tab_history
-        ttk.Button(f, text="刷新", command=self._refresh_history).grid(row=0, column=0, sticky="w", padx=8, pady=4)
-        ttk.Button(f, text="清空历史", command=self._clear_history).grid(row=0, column=1, sticky="w", padx=8, pady=4)
+        # v5.16（C2）：明文风险提示——历史记录保存语音转写原文与润色结果
+        ttk.Label(
+            f,
+            text="⚠️ 开启后，语音转写原文与润色结果将以明文保存到 history.json（含口述的密码等隐私内容）",
+            foreground="#B00020",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        self.var_history_enabled = tk.BooleanVar(
+            value=bool(self.cfg.get("history", {}).get("enabled", False))
+        )
+        ttk.Checkbutton(f, text="启用历史记录（明文保存）", variable=self.var_history_enabled).grid(
+            row=1, column=0, columnspan=2, sticky="w", padx=8, pady=4
+        )
+        ttk.Button(f, text="刷新", command=self._refresh_history).grid(row=2, column=0, sticky="w", padx=8, pady=4)
+        ttk.Button(f, text="清空历史", command=self._clear_history).grid(row=2, column=1, sticky="w", padx=8, pady=4)
         self.history_list = tk.Listbox(f, width=90, height=18)
-        self.history_list.grid(row=1, column=0, columnspan=2, padx=8, pady=4)
+        self.history_list.grid(row=3, column=0, columnspan=2, padx=8, pady=4)
         self._refresh_history()
 
     # ---------- 控件辅助 ----------
@@ -188,6 +200,14 @@ class SettingsWindow:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="e", padx=8, pady=4)
         var = tk.StringVar(value=str(value))
         e = ttk.Entry(parent, textvariable=var, width=44)
+        e.grid(row=row, column=1, sticky="w", padx=8, pady=4)
+        return var
+
+    def _secret_entry(self, parent, label, value, row):
+        """密钥输入框：掩码显示（show="*"），防肩窥（C2）。"""
+        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="e", padx=8, pady=4)
+        var = tk.StringVar(value=str(value))
+        e = ttk.Entry(parent, textvariable=var, width=44, show="*")
         e.grid(row=row, column=1, sticky="w", padx=8, pady=4)
         return var
 
@@ -218,6 +238,7 @@ class SettingsWindow:
         refine = self.cfg.setdefault("refine", {})
         ui = self.cfg.setdefault("ui", {})
         cloud = asr.setdefault("cloud", {})
+        history = self.cfg.setdefault("history", {})
         try:
             self.cfg["hotkey"] = self.var_hotkey.get()
             self.cfg["refine_cycle_hotkey"] = self.var_cycle.get()
@@ -237,6 +258,7 @@ class SettingsWindow:
             refine["model"] = self.var_llm_model.get().strip() or "deepseek-chat"
             refine["level"] = self.var_level.get()
             refine["timeout_sec"] = int(float(self.var_timeout.get()))
+            history["enabled"] = bool(self.var_history_enabled.get())
             self.app.save_cfg()
             messagebox.showinfo("保存成功", "设置已保存（录音热键等需重启生效）", parent=self.root)
         except Exception as e:

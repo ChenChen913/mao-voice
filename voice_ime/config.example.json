@@ -17,7 +17,7 @@
     "device": ""
   },
   "history": {
-    "enabled": true,
+    "enabled": false,
     "max_entries": 100
   },
   "refine": {

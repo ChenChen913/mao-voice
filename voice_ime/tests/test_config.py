@@ -12,6 +12,9 @@ def test_load_defaults_when_missing(tmp_path):
     cfg = config.load_config(str(tmp_path / "nope.json"))
     assert cfg["hotkey"] == "alt_r"
     assert cfg["asr"]["model"] == "small"
+    # v5.16（C2）：隐私默认关闭
+    assert config.DEFAULT_CONFIG["history"]["enabled"] is False
+    assert cfg["history"]["enabled"] is False
 
 
 def test_deep_merge(tmp_path):

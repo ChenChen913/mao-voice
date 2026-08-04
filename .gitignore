@@ -10,6 +10,11 @@ voice_ime/config.json
 *.pem
 *.secret
 
+# ---- privacy / test artifacts (v5.16) ----
+voice_ime/history.json
+voice_ime/result.txt
+voice_ime/target_ready.txt
+
 # ---- agent workspaces and results ----
 voice_ime/tasks/
 voice_ime/results/

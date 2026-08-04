@@ -69,7 +69,7 @@ class App:
         # v5.13.4：输入历史（成功注入后记录；配置关闭或落盘失败都不影响主流程）
         self.history = None
         hist_cfg = cfg.get("history", {})
-        if hist_cfg.get("enabled", True):
+        if hist_cfg.get("enabled", False):
             self.history = HistoryStore(max_entries=hist_cfg.get("max_entries", 100))
         self.recorder = None
         self.tray = None               # 托盘图标（pystray）

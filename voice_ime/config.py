@@ -24,7 +24,9 @@ DEFAULT_CONFIG = {
     },
     "recorder": {"auto_stop_silence_sec": 0, "device": ""},
     # v5.13.4：输入历史记录（内存队列 + JSON 落盘）
-    "history": {"enabled": True, "max_entries": 100},
+    # v5.16（C2）：默认关闭——语音转写原文与润色结果明文落盘属于隐私数据，
+    # 用户明确开启前不写入
+    "history": {"enabled": False, "max_entries": 100},
     "refine": {
         "enabled": True,
         "base_url": "https://api.deepseek.com/v1",
