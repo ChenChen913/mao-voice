@@ -218,11 +218,14 @@ class Recorder:
             return out
 
     def stop(self):
-        if self._stream:
-            self._stream.stop()
-            self._stream.close()
+        # v5.16（m4）：锁内读取并清空 stream，锁外 stop/close，
+        # 消除与 active 属性（锁内读 _stream）之间的 TOCTOU
         with self._lock:
+            stream = self._stream
             self._stream = None
+        if stream:
+            stream.stop()
+            stream.close()
         self._stop_draft.set()
         # v5.5：不再等待草稿线程退出。原实现 join(≤2s) 会卡在 in-flight 的
         # on_draft（增量转写可能耗时 1~2s），导致"按完成键后迟迟不转写"。

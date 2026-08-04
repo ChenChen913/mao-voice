@@ -22,7 +22,7 @@ mao-voice/
 │   ├── main.py                      # 入口：toggle 状态机 + 管线编排
 │   ├── config.py / config.example.json
 │   ├── hotkey.py / recorder.py / asr.py / refiner.py
-│   ├── safe_inject.py / ui.py / vad.py / draft_smoother.py
+│   ├── safe_inject.py / ui.py / vad.py
 │   ├── cloud_asr.py / doctor.py / orchestrate.py
 │   ├── settings_ui.py / history.py / download_model.py
 │   ├── 词库.txt / 启动.bat / requirements.txt

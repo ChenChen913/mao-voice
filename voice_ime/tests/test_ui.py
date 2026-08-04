@@ -47,3 +47,24 @@ def test_no_text_items_in_recording(overlay):
     overlay._tick_recording(w, h)
     for item in overlay._canvas.find_all():
         assert overlay._canvas.type(item) == "polygon"
+
+
+def test_unknown_state_does_not_crash(overlay):
+    """m2：未知状态回退默认样式，不再抛 KeyError。"""
+    overlay._show_impl("BOGUS_STATE", "x")
+    assert overlay._active is True
+
+
+def test_max_chars_config_used(tk_app_root):
+    """C7：ui.max_chars 控制错误/预览文本截断长度。"""
+    ov = Overlay(tk_app_root, max_chars=12)
+    ov.show("ERROR", "这是一段很长的错误提示文本，应该被截断")
+    for _ in range(5):
+        tk_app_root.update()
+    texts = [
+        ov._canvas.itemcget(i, "text")
+        for i in ov._canvas.find_all()
+        if ov._canvas.type(i) == "text"
+    ]
+    assert texts, "应绘制出文本"
+    assert any(t.endswith("…") and len(t) <= 13 for t in texts)

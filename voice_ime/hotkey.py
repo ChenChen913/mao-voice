@@ -133,6 +133,10 @@ class HotkeyListener:
                 item = task_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
+            # v5.16（m1）：取件后再复查代数——stop() 前排队的 toggle 在 stop 之后
+            # 不应再执行 on_toggle
+            if gen != self._gen:
+                break
             if item is _STOP:
                 break
             try:

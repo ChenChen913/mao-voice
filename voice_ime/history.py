@@ -53,6 +53,10 @@ class HistoryStore:
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(list(self._items), f, ensure_ascii=False, indent=2)
+            # v5.16（m3）：与 config.save_config 的原子写入约定一致——rename 前
+            # flush + fsync 落盘，避免断电留下零长/截断文件
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, self.path)
 
     def items(self):

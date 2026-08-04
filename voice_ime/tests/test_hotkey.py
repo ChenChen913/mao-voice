@@ -60,3 +60,15 @@ def test_stop_from_worker_does_not_self_join():
     assert not h._worker.is_alive()
     # worker 已退出；外部再 stop 一次应无异常
     h.stop()
+
+
+def test_queued_toggle_skipped_after_stop():
+    """m1：stop()（代数变化）后，已排队但未取出的 toggle 不再执行。"""
+    calls = []
+    h = HotkeyListener("f9", lambda: calls.append(1))
+    h.start()
+    h._gen += 1  # 模拟 stop() 已递增代数
+    h._task_queue.put(object())
+    h._worker.join(timeout=3.0)
+    assert calls == []
+    h.stop()

@@ -42,16 +42,18 @@ def _safe_url(url: str) -> str:
 class CloudASREngine:
     """OpenAI 兼容 /v1/audio/transcriptions 端点的轻量客户端。"""
 
-    def __init__(self, base_url: str, api_key: str, model: str = "whisper-1"):
+    def __init__(self, base_url: str, api_key: str, model: str = "whisper-1", language="zh"):
         """
         :param base_url: 端点根地址，如 "https://api.openai.com/v1"。
             内部会拼成 {base_url}/audio/transcriptions，允许带或不带结尾斜杠。
         :param api_key: 厂商 API Key；为空时调用 transcribe 会直接抛错。
         :param model: 语音识别模型名，默认 "whisper-1"（OpenAI 官方默认）。
+        :param language: 语言代码，默认 "zh"；None 表示自动检测（不发送 language 字段）。
         """
         self.base_url = base_url.rstrip("/")
         self.api_key = (api_key or "").strip()
         self.model = model
+        self.language = language
 
     def _audio_to_wav(self, audio) -> bytes:
         """
@@ -103,12 +105,12 @@ class CloudASREngine:
             wf.writeframes(pcm.tobytes())
         return buf.getvalue()
 
-    def transcribe(self, audio, language: str = "zh") -> str:
+    def transcribe(self, audio, language=None) -> str:
         """
         识别音频，返回识别文本。
 
         :param audio: 16kHz float32 mono numpy 数组（与本地 WhisperEngine 输入一致）。
-        :param language: 语言代码，默认 "zh"；传入空串/None 时不发送该字段，
+        :param language: 语言代码，覆盖实例 language；传入空串/None 时使用实例配置，
             由端点自动检测（部分端点不支持该字段时也能正常调用）。
         :raises RuntimeError: 未配置 api_key、网络请求失败、端点返回非 2xx、
             响应解析失败或缺少 text 字段时抛出，异常信息含可排查的上下文。
@@ -124,8 +126,9 @@ class CloudASREngine:
 
         files = {"file": (_WAV_FILENAME, self._audio_to_wav(audio), _WAV_MIME)}
         data = {"model": self.model}
-        if language:
-            data["language"] = language
+        lang = self.language if language is None else language
+        if lang:
+            data["language"] = lang
         headers = {"Authorization": f"Bearer {self.api_key}"}
         url = f"{self.base_url}/audio/transcriptions"
 

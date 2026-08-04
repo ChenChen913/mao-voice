@@ -48,6 +48,7 @@ def make_asr(cfg):
         return CloudASREngine(
             base_url=cloud["base_url"], api_key=cloud_key,
             model=cloud.get("model", "whisper-1"),
+            language=a.get("language"),  # C5：云端 ASR 尊重 asr.language（None=自动）
         )
     return WhisperEngine(a.get("model", "small"), a.get("language", "zh"))
 
@@ -77,7 +78,6 @@ class App:
         self.settings_win = None       # 设置窗口（单例）
         self._last_tray_state = None
         self.state = "IDLE"
-        self._last_draft = ""
         self._last_rms = 0.0          # 录音线程写入的最新电平（0~1），float 原子写，无需加锁
         self._lock = threading.Lock()
         self._ui_queue = queue.Queue()
@@ -134,6 +134,8 @@ class App:
 
     def _show_toast(self, text, seconds=1.5):
         """在悬浮窗短暂显示提示文本（仅空闲态自动隐藏，不覆盖录音/处理状态）。"""
+        # v5.16（C7）：时长从 ui.preview_sec 读取，设置项不再是无效果的死配置
+        seconds = self.cfg.get("ui", {}).get("preview_sec", seconds)
         self._ui_queue.put(("toast", (text, seconds)))
 
     # ---------- 托盘 / 设置窗口（v5.13.5） ----------
@@ -163,7 +165,6 @@ class App:
                 pass
 
     def _start_recording(self):
-        self._last_draft = ""
         self._last_rms = 0.0
         label = HOTKEY_LABELS.get(self.cfg["hotkey"], self.cfg["hotkey"])
         with self._lock:
@@ -242,13 +243,9 @@ class App:
                     # v5.11：结束录音（已进入 PROCESSING）后不再发起新的增量转写，
                     # 缩小与最终整段转写的并发窗口
                     return
-            text = self.asr.transcribe(audio)
-            text = text.strip()
-            if text:
-                with self._lock:
-                    # 预留字段：v5 起浮窗不再展示转写内容，保留增量转写
-                    # 用于模型预热与未来"实时草稿"功能
-                    self._last_draft = text
+            # v5.16（C10）：增量转写仅用于模型预热（与 _process 共用推理锁后
+            # 天然串行），不再写入无读取方的 _last_draft 字段
+            self.asr.transcribe(audio)
         except Exception:
             logging.exception("增量草稿转写异常（已忽略，不影响录音）")
 
@@ -394,11 +391,12 @@ class App:
 def main():
     ensure_defaults()
     cfg = load_config()
-    if not cfg["refine"].get("api_key"):
+    # v5.16（C6）：环境变量同样视为已配置，避免误导提示
+    if not cfg["refine"].get("api_key") and not os.environ.get("DEEPSEEK_API_KEY"):
         print("[提示] 尚未配置 DeepSeek API Key：请编辑 voice_ime/config.json 的 refine.api_key")
     root = tk.Tk()
     root.withdraw()
-    overlay = Overlay(root)
+    overlay = Overlay(root, max_chars=cfg.get("ui", {}).get("max_chars", 300))
     app = App(cfg, overlay, root)
     # 后台预热 ASR 模型：避免第一次按键时才下载/加载（首次可能耗时很久）
     if hasattr(app.asr, "warmup"):

@@ -277,5 +277,5 @@ JSON
 - **注入**：以 `safe_inject.py` 为准（剪贴板全格式备份恢复、UIPI 预检、序列号冲突检测）；`injector.py` 冗余实现已于 v5.9 删除；
 - **悬浮窗**：150×52 波形胶囊；v5 起**声波仅在 VAD 判定说话时显示**，静音时只显示「🎤 录音中…」；
 - **管线**：v5 起**移除 PREVIEW 浮窗预览**，润色完成后直接注入输入框；
-- **新增模块**：`cloud_asr.py`（云端 ASR 兜底）、`doctor.py`（环境自检）、`orchestrate.py`（多 Agent 编排）、`draft_smoother.py`（草稿平滑，v5 起未接线，保留备用）；
+- **新增模块**：`cloud_asr.py`（云端 ASR 兜底）、`doctor.py`（环境自检）、`orchestrate.py`（多 Agent 编排）；`draft_smoother.py`（草稿平滑，v5 起未接线）已于 v5.16 删除；
 - **配置**：新增 `recorder.auto_stop_silence_sec`、`ui.max_chars`、`asr.cloud`；无 `prompts/refine.md`（提示词内嵌于 `refiner.py`）；无 `logs/app.log` 文件日志。

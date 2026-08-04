@@ -93,7 +93,7 @@ class Overlay:
     （内部自动路由到 Tk 主线程）。
     """
 
-    def __init__(self, root=None):
+    def __init__(self, root=None, max_chars=300):
         # v5.15：优先复用调用方传入的 Tk 根窗口（main.py 传入主 root）。
         # 原实现忽略参数自建第二个 Tk 根：一是双根设计冗余，
         # 二是在 GitHub Actions 等受限桌面环境下第二个 Tk 根会报
@@ -104,6 +104,7 @@ class Overlay:
         else:
             self._root = tk.Tk()
             self._root.withdraw()
+        self._max_chars = max(int(max_chars), 10)  # v5.16（C7）：截断长度可配置
         self._canvas = None
         self._menu = None
         self._anim_job = None
@@ -252,7 +253,12 @@ class Overlay:
         self._smooth_bands = None
         self._peak_bands = None
 
-        cfg = STATE_CONFIG[state]
+        cfg = STATE_CONFIG.get(state)
+        if cfg is None:
+            # v5.16（m2）：未知状态不再抛 KeyError 干扰 Tk 主循环，回退默认样式并告警
+            import logging
+            logging.getLogger(__name__).warning("未知 UI 状态 %r，回退默认样式", state)
+            cfg = {'text': '', 'color': '#E74C3C', 'w': 380, 'h': 80}
         w, h = cfg['w'], cfg['h']
 
         # 1. 先映射窗口：withdraw 状态下 geometry() 不生效，
@@ -311,7 +317,7 @@ class Overlay:
         # 背景胶囊（圆角 16px 深色底）
         _rounded_rect(c, 0, 0, w, h, radius=16, fill=BG_DARK, outline='')
 
-        cfg = STATE_CONFIG[state]
+        cfg = STATE_CONFIG.get(state, {'text': '', 'color': '#E74C3C', 'w': 380, 'h': 80})
 
         if state == 'RECORDING':
             # 录音中：只显示波形——说话时律动，静音时静止，30fps 动画
@@ -324,8 +330,9 @@ class Overlay:
             # 注入中：纯文字，无动画
             self._draw_text_center(c, w, h, cfg['text'], cfg['color'], font_size=11)
         elif state in ('PREVIEW', 'ERROR'):
-            # 预览/错误：外部文字，截断约 40 字
-            display = text[:40] + ('…' if len(text) > 40 else '')
+            # 预览/错误：外部文字，按 ui.max_chars 截断（默认 300）
+            limit = self._max_chars
+            display = text[:limit] + ('…' if len(text) > limit else '')
             self._draw_text_center(c, w, h, display, cfg['color'],
                                    font_size=10, wraplength=w - 40)
 

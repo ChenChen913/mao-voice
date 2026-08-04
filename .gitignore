@@ -18,6 +18,7 @@ voice_ime/target_ready.txt
 # ---- agent workspaces and results ----
 voice_ime/tasks/
 voice_ime/results/
+.workbuddy/
 
 # ---- python ----
 __pycache__/

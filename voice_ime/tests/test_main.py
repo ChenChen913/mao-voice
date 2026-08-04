@@ -144,3 +144,13 @@ def test_max_duration_triggers_finish(tmp_path, monkeypatch):
     app._poll_recording()
 
     assert calls == [1]
+
+
+def test_show_toast_uses_preview_sec(tmp_path):
+    """C7：ui.preview_sec 已接线到 toast 时长，不再是死配置。"""
+    app = _make_app(tmp_path)
+    app.cfg["ui"]["preview_sec"] = 2.5
+    app._show_toast("x")
+    kind, payload = app._ui_queue.get_nowait()
+    assert kind == "toast"
+    assert payload[1] == 2.5

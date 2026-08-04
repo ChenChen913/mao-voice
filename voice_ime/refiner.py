@@ -69,7 +69,14 @@ class Refiner:
             "Content-Type": "application/json",
         }
         url = r.get("base_url", "https://api.deepseek.com/v1").rstrip("/")
-        timeout = r.get("timeout_sec", 30)
+        # v5.16（C9）：手改配置可能出现 0/负数/非数字，统一钳制回退 30，
+        # 避免 requests 对非法 timeout 抛 ValueError 导致润色链路失败
+        try:
+            timeout = float(r.get("timeout_sec", 30))
+            if not (timeout > 0):
+                timeout = 30
+        except (TypeError, ValueError):
+            timeout = 30
 
         last_err = None
         for attempt in range(1, MAX_ATTEMPTS + 1):

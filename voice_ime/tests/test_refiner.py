@@ -135,3 +135,24 @@ def test_env_key_fallback_without_persist(monkeypatch):
     assert r.refine("原文") == "ok"
     assert calls[0]["Authorization"] == "Bearer sk-env"
     assert cfg["refine"]["api_key"] == ""  # 环境变量不写回配置文件
+
+
+def test_invalid_timeout_falls_back_to_30(monkeypatch):
+    """C9：timeout_sec=0/非数字时回退 30，不抛 ValueError。"""
+    timeouts = []
+
+    def fake_post(url, headers, json, timeout):
+        timeouts.append(timeout)
+        return FakeResp(payload={"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(refiner.requests, "post", fake_post)
+
+    r0 = refiner.Refiner({"refine": {"enabled": True, "api_key": "k",
+                                     "base_url": "https://x/v1", "timeout_sec": 0}})
+    assert r0.refine("原文") == "ok"
+
+    r_bad = refiner.Refiner({"refine": {"enabled": True, "api_key": "k",
+                                        "base_url": "https://x/v1", "timeout_sec": "abc"}})
+    assert r_bad.refine("原文") == "ok"
+
+    assert timeouts == [30, 30]

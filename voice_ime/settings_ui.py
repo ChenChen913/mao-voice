@@ -32,6 +32,14 @@ LEVEL_CHOICES = ["conservative", "light", "polish"]
 LEVEL_LABELS = {"conservative": "保守纠错", "light": "轻度规整", "polish": "完整规整"}
 
 
+def pick_download_model(model_text):
+    """根据当前模型路径/名称选择下载目标（small/medium），未知默认 medium（C8）。"""
+    m = (model_text or "").strip().lower()
+    if "small" in m:
+        return "small"
+    return "medium"
+
+
 def make_tray_image():
     """生成 64x64 托盘图标（深色圆底 + 蓝色声波竖条）。"""
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
@@ -301,6 +309,9 @@ class SettingsWindow:
             tmp = WORDS_PATH + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 f.write(self.words_text.get("1.0", "end"))
+                # v5.16（m3）：flush + fsync 后再 rename，保证原子性 + 持久性
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp, WORDS_PATH)
             messagebox.showinfo("保存成功", "词库已保存（下次转写生效）", parent=self.root)
         except OSError as e:
@@ -330,7 +341,9 @@ class SettingsWindow:
         def worker():
             try:
                 import download_model
-                download_model.main(["--model", "medium"])
+                # v5.16（C8）：跟随设置里当前模型，不再固定下载 1.5GB 的 medium
+                model = pick_download_model(self.var_model.get())
+                download_model.main(["--model", model])
                 self._dl_state = "下载完成，模型路径已更新"
             except SystemExit:
                 self._dl_state = "下载已取消"

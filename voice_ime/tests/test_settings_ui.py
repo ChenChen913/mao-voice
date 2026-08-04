@@ -22,6 +22,14 @@ def test_make_tray_image():
     assert img.size == (64, 64)
 
 
+def test_pick_download_model():
+    """C8：下载模型跟随当前配置（small/medium/未知）。"""
+    assert settings_ui.pick_download_model("small") == "small"
+    assert settings_ui.pick_download_model("models/faster-whisper-medium") == "medium"
+    assert settings_ui.pick_download_model("") == "medium"
+    assert settings_ui.pick_download_model("C:/models/faster-whisper-small") == "small"
+
+
 def test_settings_window_tabs_and_save(tmp_path, monkeypatch, tk_app_root):
     monkeypatch.setattr(settings_ui.messagebox, "showinfo", lambda *a, **k: None)
     monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: None)
