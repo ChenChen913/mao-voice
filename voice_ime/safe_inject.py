@@ -496,6 +496,30 @@ def _foreground_root_hwnd() -> int:
         return 0
 
 
+def _put_text_to_clipboard(text: str) -> bool:
+    """尽力把文本写入剪贴板（注入中止时的降级，B3）；失败返回 False。"""
+    if not _open_clipboard():
+        return False
+    try:
+        user32.EmptyClipboard()
+        text_bytes = (text + "\0").encode("utf-16-le")
+        htext = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(text_bytes))
+        if not htext:
+            return False
+        ptr = kernel32.GlobalLock(htext)
+        if not ptr:
+            kernel32.GlobalFree(htext)
+            return False
+        ctypes.memmove(ptr, text_bytes, len(text_bytes))
+        kernel32.GlobalUnlock(htext)
+        if not user32.SetClipboardData(CF_UNICODETEXT, htext):
+            kernel32.GlobalFree(htext)
+            return False
+        return True
+    finally:
+        user32.CloseClipboard()
+
+
 # ============================================================================
 # 公共接口
 # ============================================================================
@@ -548,6 +572,9 @@ def inject(
     # ---- UIPI 检测 ----
     blocked, reason = _check_uipi_block()
     if blocked:
+        # v5.17（B3）：中止时把文本复制到剪贴板，避免用户辛苦说的一段话直接丢失
+        if _put_text_to_clipboard(text):
+            return False, "UIPI 拦截：{}；文本已复制到剪贴板，请手动粘贴".format(reason)
         return False, f"UIPI 拦截：{reason}"
 
     # ---- 焦点校验（B7）：录制→转写→润色耗时数秒，用户可能已切换到别的窗口。
@@ -555,6 +582,8 @@ def inject(
     if require_same_focus and expected_hwnd:
         current_hwnd = _foreground_root_hwnd()
         if current_hwnd and current_hwnd != expected_hwnd:
+            if _put_text_to_clipboard(text):
+                return False, "前台窗口已切换，已取消注入；文本已复制到剪贴板，请手动粘贴"
             return False, "前台窗口已切换，已取消注入（文本未粘贴）"
 
     # ---- 步骤 1：保存当前剪贴板所有格式 ----

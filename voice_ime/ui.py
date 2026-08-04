@@ -104,7 +104,11 @@ class Overlay:
         else:
             self._root = tk.Tk()
             self._root.withdraw()
-        self._max_chars = max(int(max_chars), 10)  # v5.16（C7）：截断长度可配置
+        # v5.17（B2）：对调用方传入的非法值自身容错，避免启动崩溃
+        try:
+            self._max_chars = max(int(max_chars), 10)
+        except (TypeError, ValueError):
+            self._max_chars = 300
         self._canvas = None
         self._menu = None
         self._anim_job = None

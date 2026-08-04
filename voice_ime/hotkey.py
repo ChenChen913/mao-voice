@@ -72,6 +72,11 @@ class HotkeyListener:
         self.keys = {key}
         if key_name == "alt_r":
             self.keys.add(keyboard.Key.alt_gr)
+        # v5.17（B5）：单字符热键记录小写集合，按键事件按 char 小写匹配，
+        # 避免 Caps Lock 开启时按 A 不触发配置为 a 的热键
+        self.char_keys = set()
+        if key_name not in _SPECIAL and len(key_name) == 1:
+            self.char_keys.add(key_name.lower())
         self.on_toggle = on_toggle
         self._last_time = 0.0  # 上次触发时刻（monotonic），用于防抖
         self._lock = threading.Lock()  # 保护 _last_time 的读-改-写
@@ -150,7 +155,10 @@ class HotkeyListener:
                 _log.exception("HotkeyListener.on_toggle 回调异常")
 
     def _on_press(self, key):
-        if key not in self.keys:
+        matched = key in self.keys
+        if not matched and getattr(key, "char", None):
+            matched = key.char.lower() in self.char_keys
+        if not matched:
             return
         now = time.monotonic()
         # 防抖：事件间隔 <200ms 忽略，防止双击误触 / 系统按键重复造成连切

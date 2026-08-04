@@ -70,3 +70,20 @@ def test_settings_window_rejects_duplicate_hotkeys(tmp_path, monkeypatch, tk_app
     assert errors, "应弹出错误提示"
     assert app.saved is False, "重复热键不应保存"
     win.root.destroy()
+
+
+def test_history_enabled_mid_run_creates_store(tmp_path, monkeypatch, tk_app_root):
+    """B4：运行中开启历史记录后，当前会话立即创建 HistoryStore。"""
+    monkeypatch.setattr(settings_ui.messagebox, "showinfo", lambda *a, **k: None)
+    monkeypatch.setattr(settings_ui.messagebox, "showerror", lambda *a, **k: None)
+
+    cfg = config.load_config(str(tmp_path / "c.json"))
+    app = FakeApp(cfg, None)  # 启动时未启用历史 → 无 store
+    win = SettingsWindow(app, parent=tk_app_root)
+    win.root.update()
+
+    win.var_history_enabled.set(True)
+    win.save()
+
+    assert app.history is not None, "开启历史后应立即创建 HistoryStore"
+    win.root.destroy()

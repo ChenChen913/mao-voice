@@ -150,11 +150,32 @@ def test_max_duration_triggers_finish(tmp_path, monkeypatch):
     app.recorder = FakeRecorder(duration=999.0)
     app.state = "RECORDING"
     calls = []
-    monkeypatch.setattr(main.App, "_finish_recording", lambda self: calls.append(1))
+    monkeypatch.setattr(
+        main.App, "_finish_recording",
+        lambda self, reason=None: calls.append(reason),
+    )
 
     app._poll_recording()
 
-    assert calls == [1]
+    assert calls == ["max_duration"]
+
+
+def test_finish_recording_max_duration_toast(tmp_path, monkeypatch):
+    """N-m6：max_duration 自动结束时发 toast 提示，且状态机照常进入 PROCESSING。"""
+    app = _make_app(tmp_path)
+    app.recorder = FakeRecorder(duration=1.0)
+    app.state = "RECORDING"
+    started = []
+    monkeypatch.setattr(
+        main.threading, "Thread",
+        lambda target, daemon=False: started.append(target) or _FakeThread(target, daemon),
+    )
+
+    app._finish_recording(reason="max_duration")
+
+    kinds = [item[0] for item in list(app._ui_queue.queue)]
+    assert "toast" in kinds
+    assert app.state == "PROCESSING"
 
 
 def test_poll_recording_survives_recorder_none(tmp_path):
@@ -166,6 +187,29 @@ def test_poll_recording_survives_recorder_none(tmp_path):
     app._poll_recording()  # 不应抛 AttributeError
 
     assert len(app.root.after_calls) == 1
+
+
+def test_poll_recording_bad_numeric_config_does_not_crash(tmp_path):
+    """B2：手改 recorder 数值配置为非数字时，轮询不崩溃且继续调度。"""
+    app = _make_app(tmp_path)
+    app.recorder = FakeRecorder(duration=1.0)
+    app.state = "RECORDING"
+    app.cfg["recorder"]["auto_stop_silence_sec"] = "abc"
+    app.cfg["recorder"]["max_duration_sec"] = "abc"
+
+    app._poll_recording()  # 不应抛 TypeError
+
+    assert len(app.root.after_calls) == 1
+
+
+def test_show_toast_bad_preview_sec_falls_back(tmp_path):
+    """B2：ui.preview_sec 为非数字时回退默认 1.5s。"""
+    app = _make_app(tmp_path)
+    app.cfg["ui"]["preview_sec"] = "abc"
+    app._show_toast("x")
+    kind, payload = app._ui_queue.get_nowait()
+    assert kind == "toast"
+    assert payload[1] == 1.5
 
 
 def test_show_toast_uses_preview_sec(tmp_path):

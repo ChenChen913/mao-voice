@@ -80,3 +80,11 @@ def test_state_config_has_required_keys():
 
     for state, cfg in STATE_CONFIG.items():
         assert {"text", "color", "w", "h"} <= set(cfg), "状态 {} 缺少必需键".format(state)
+
+
+def test_max_chars_invalid_input_falls_back(tk_app_root):
+    """B2：Overlay 收到非数字 max_chars 时回退 300，不抛异常。"""
+    ov = Overlay(tk_app_root, max_chars="abc")
+    assert ov._max_chars == 300
+    ov2 = Overlay(tk_app_root, max_chars=None)
+    assert ov2._max_chars == 300

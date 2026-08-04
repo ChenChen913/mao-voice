@@ -77,6 +77,23 @@ def resolve_keys(cfg):
     return refine_key, cloud_key
 
 
+def clamp_number(value, default, lo=None, hi=None):
+    """把用户可编辑的配置值安全转成 float（v5.17/B2）。
+
+    手改 config 可能出现非数字（如 "abc"），直接参与比较/运算会抛 TypeError；
+    这里统一回退 default，并做可选范围钳制。返回 float。
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return default
+    if lo is not None:
+        v = max(v, lo)
+    if hi is not None:
+        v = min(v, hi)
+    return v
+
+
 def save_config(cfg, path=CONFIG_PATH):
     """原子写入：先写同目录临时文件，flush + fsync 落盘后再 os.replace 覆盖。
 

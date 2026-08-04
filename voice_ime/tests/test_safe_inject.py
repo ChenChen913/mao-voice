@@ -76,16 +76,43 @@ def test_inject_aborts_when_focus_changed(monkeypatch):
     monkeypatch.setattr(safe_inject, "_check_uipi_block", lambda: (False, ""))
     monkeypatch.setattr(safe_inject, "_foreground_root_hwnd", lambda: 111)
     clipboard_calls = []
+    put_calls = []
     monkeypatch.setattr(
         safe_inject, "_save_all_clipboard_formats",
         lambda: clipboard_calls.append(1) or (0, []),
+    )
+    monkeypatch.setattr(
+        safe_inject, "_put_text_to_clipboard",
+        lambda t: put_calls.append(t) or True,
     )
 
     ok, msg = safe_inject.inject("你好", expected_hwnd=222, require_same_focus=True)
 
     assert ok is False
     assert "前台窗口已切换" in msg
+    assert "已复制到剪贴板" in msg
     assert clipboard_calls == [], "焦点不一致时不应打开/修改剪贴板"
+    assert put_calls == ["你好"], "中止时应把文本降级写入剪贴板"
+
+
+def test_inject_uipi_aborts_copies_text_to_clipboard(monkeypatch):
+    """B3：UIPI 拦截时同样把文本降级写入剪贴板。"""
+    monkeypatch.setattr(
+        safe_inject, "_check_uipi_block",
+        lambda: (True, "目标窗口以管理员权限运行"),
+    )
+    put_calls = []
+    monkeypatch.setattr(
+        safe_inject, "_put_text_to_clipboard",
+        lambda t: put_calls.append(t) or True,
+    )
+
+    ok, msg = safe_inject.inject("你好")
+
+    assert ok is False
+    assert "UIPI 拦截" in msg
+    assert "已复制到剪贴板" in msg
+    assert put_calls == ["你好"]
 
 
 def test_restore_skipped_when_sequence_changed(monkeypatch):

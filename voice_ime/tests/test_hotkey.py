@@ -88,3 +88,13 @@ def test_worker_stop_with_full_queue_does_not_deadlock():
     t.start()
     t.join(timeout=2.0)
     assert not t.is_alive(), "worker 内 stop 在队列满时阻塞（自死锁）"
+
+
+def test_single_char_hotkey_matches_uppercase():
+    """B5：配置单字符 a 时，Caps Lock 下按 A（char='A'）也能触发。"""
+    h = HotkeyListener("a", lambda: None)
+    h._on_press(keyboard.KeyCode(vk=65, char="A"))
+    assert h._task_queue.qsize() == 1
+    h._last_time = time.monotonic() - 0.3  # 越过 200ms 防抖
+    h._on_press(keyboard.KeyCode(vk=65, char="a"))
+    assert h._task_queue.qsize() == 2

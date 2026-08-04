@@ -140,51 +140,49 @@ def _load_config() -> tuple[dict | None, str | None]:
     return data, None
 
 
+def _hotkey_problem(name, allow_empty=False) -> str | None:
+    """校验单个热键字段；返回 None 表示合法，否则返回可读错误（v5.17/B6）。"""
+    if name is None:
+        return None if allow_empty else "缺少字段"
+    if not isinstance(name, str):
+        return f"应为字符串，实际为 {type(name).__name__}"
+    if not name.strip():
+        return None if allow_empty else "为空"
+    hotkey_parts = [k.strip() for k in name.split("+")]
+    # 先检查空分割（如 "ctrl+ +alt" 或 "ctrl+" 产生空串）再判断组合键
+    empty_parts = [i for i, k in enumerate(hotkey_parts) if not k]
+    if empty_parts:
+        return (
+            "包含空键位（索引 {}），可能是连续 '+' 或末尾多余的 '+' 导致".format(empty_parts)
+        )
+    if len(hotkey_parts) > 1:
+        return (
+            "含组合键，但当前仅支持单键（如 alt_r/f9/caps_lock），请改为单键"
+        )
+    unknown = [k for k in hotkey_parts if k.lower() not in _VALID_HOTKEY_NAMES]
+    if unknown:
+        return f"包含未知键名: {unknown}"
+    return None
+
+
 def _check_config() -> tuple[str, bool, str]:
     """3. config.json 存在、可解析、hotkey 字段合法"""
     data, err = _load_config()
     if err:
         return ("配置完整性", False, err)
 
-    hotkey = data.get("hotkey")
-    if hotkey is None:
-        return ("配置完整性", False, "缺少 hotkey 字段")
-    if not isinstance(hotkey, str):
-        return ("配置完整性", False, f"hotkey 应为字符串，实际为 {type(hotkey).__name__}")
+    # v5.17（B6）：除主热键外，同时校验 settings_hotkey / refine_cycle_hotkey
+    # （空串=禁用，放行；非法/组合键直接报错，避免 doctor 全绿但功能静默失效）
+    for field, value, allow_empty in (
+        ("hotkey", data.get("hotkey"), False),
+        ("settings_hotkey", data.get("settings_hotkey"), True),
+        ("refine_cycle_hotkey", data.get("refine_cycle_hotkey"), True),
+    ):
+        problem = _hotkey_problem(value, allow_empty=allow_empty)
+        if problem:
+            return ("配置完整性", False, f"{field}={value!r} {problem}")
 
-    hotkey_parts = [k.strip() for k in hotkey.split("+")]
-    # 先检查空分割（如 "ctrl+ +alt" 或 "ctrl+" 产生空串）再判断组合键，
-    # 保证空键位诊断可达（v5.14）
-    empty_parts = [i for i, k in enumerate(hotkey_parts) if not k]
-    if empty_parts:
-        return (
-            "配置完整性",
-            False,
-            f"hotkey='{hotkey}' 包含空键位（索引 {empty_parts}），"
-            "可能是连续 '+' 或末尾多余的 '+' 导致",
-        )
-    if len(hotkey_parts) > 1:
-        # v5.13.6：hotkey.py 仅支持单键；组合键配置会"自检通过但静默失效"，直接报错
-        return (
-            "配置完整性",
-            False,
-            f"hotkey='{hotkey}' 含组合键，但当前仅支持单键（如 alt_r/f9/caps_lock），请改为单键",
-        )
-    if not hotkey.strip():
-        return (
-            "配置完整性",
-            False,
-            "hotkey 为空，请在 config.json 中设置有效的热键",
-        )
-    unknown = [k for k in hotkey_parts if k.lower() not in _VALID_HOTKEY_NAMES]
-    if unknown:
-        return (
-            "配置完整性",
-            False,
-            f"hotkey='{hotkey}' 包含未知键名: {unknown}",
-        )
-
-    return ("配置完整性", True, f"config.json 可解析，hotkey='{hotkey}' 合法")
+    return ("配置完整性", True, "config.json 可解析，热键配置合法")
 
 
 def _check_api_key() -> tuple[str, bool, str]:

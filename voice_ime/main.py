@@ -10,7 +10,7 @@ import tkinter as tk
 import logging
 import os
 
-from config import build_words_block, ensure_defaults, load_config, resolve_keys, save_config
+from config import build_words_block, clamp_number, ensure_defaults, load_config, resolve_keys, save_config
 from hotkey import HOTKEY_LABELS, HotkeyListener, parse_key
 from recorder import Recorder
 from asr import WhisperEngine
@@ -135,7 +135,10 @@ class App:
     def _show_toast(self, text, seconds=1.5):
         """在悬浮窗短暂显示提示文本（仅空闲态自动隐藏，不覆盖录音/处理状态）。"""
         # v5.16（C7）：时长从 ui.preview_sec 读取，设置项不再是无效果的死配置
-        seconds = self.cfg.get("ui", {}).get("preview_sec", seconds)
+        # v5.17（B2）：手改配置为非数字时回退默认，避免 poll_ui 抛 TypeError
+        seconds = clamp_number(
+            self.cfg.get("ui", {}).get("preview_sec", seconds), seconds, lo=0.1, hi=60
+        )
         self._ui_queue.put(("toast", (text, seconds)))
 
     # ---------- 托盘 / 设置窗口（v5.13.5） ----------
@@ -214,7 +217,7 @@ class App:
             pass  # 悬浮窗偶发异常不影响录音主流程
         self.root.after(100, self._poll_level)
 
-    def _finish_recording(self):
+    def _finish_recording(self, reason=None):
         """结束录音并启动转写（RECORDING→PROCESSING）；静音自动停止也走这里。
 
         原实现不转移状态：_process 执行期间（ASR+润色+预览+注入可能数秒）
@@ -233,6 +236,11 @@ class App:
             self.state = "PROCESSING"
             # B7：记录结束瞬间的前台窗口，注入前校验焦点未切换
             self._target_hwnd = _current_root_hwnd()
+        # v5.17（N-m6）：自动结束（静音/时长上限）时给用户明确提示
+        if reason == "max_duration":
+            self._show_toast("⏱️ 已达最大录音时长，已自动结束")
+        elif reason == "silence":
+            self._show_toast("🔇 静音超时，已自动结束")
         threading.Thread(target=self._process, daemon=True).start()
 
     # ---------- 录音期间增量草稿 ----------
@@ -251,8 +259,13 @@ class App:
 
     # ---------- 静音自动停止（主线程轮询） ----------
     def _poll_recording(self):
-        auto_stop = self.cfg.get("recorder", {}).get("auto_stop_silence_sec", 0)
-        max_duration = self.cfg.get("recorder", {}).get("max_duration_sec", 0) or 0
+        # v5.17（B2）：数值配置统一钳制——非数字不再让轮询在 try 外抛 TypeError 后失活
+        auto_stop = clamp_number(
+            self.cfg.get("recorder", {}).get("auto_stop_silence_sec", 0), 0, lo=0
+        )
+        max_duration = clamp_number(
+            self.cfg.get("recorder", {}).get("max_duration_sec", 0), 0, lo=0
+        )
         with self._lock:
             recording = self.state == "RECORDING"
             recorder = self.recorder  # v5.17（N-M1）：锁内取局部变量，锁外不再重复读
@@ -261,14 +274,14 @@ class App:
             if auto_stop > 0:
                 try:
                     if recorder.vad.silence_seconds() >= auto_stop:
-                        self._finish_recording()
+                        self._finish_recording(reason="silence")
                 except Exception:
                     pass
             # v5.16（M4）：最大录音时长兜底，防误触/静音会话无限录音占用内存
             if max_duration > 0:
                 try:
                     if recorder.duration >= max_duration:
-                        self._finish_recording()
+                        self._finish_recording(reason="max_duration")
                 except Exception:
                     pass
         self.root.after(300, self._poll_recording)
@@ -397,7 +410,10 @@ def main():
         print("[提示] 尚未配置 DeepSeek API Key：请编辑 voice_ime/config.json 的 refine.api_key")
     root = tk.Tk()
     root.withdraw()
-    overlay = Overlay(root, max_chars=cfg.get("ui", {}).get("max_chars", 300))
+    overlay = Overlay(
+        root,
+        max_chars=int(clamp_number(cfg.get("ui", {}).get("max_chars", 300), 300, lo=10)),
+    )
     app = App(cfg, overlay, root)
     # 后台预热 ASR 模型：避免第一次按键时才下载/加载（首次可能耗时很久）
     if hasattr(app.asr, "warmup"):

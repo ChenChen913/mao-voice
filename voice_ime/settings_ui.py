@@ -13,6 +13,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from hotkey import HOTKEY_LABELS
+from history import HistoryStore
 
 try:
     import pystray
@@ -299,6 +300,12 @@ class SettingsWindow:
             inject["require_same_focus"] = bool(self.var_require_focus.get())
             r["max_duration_sec"] = int(float(self.var_max_duration.get()))
             self.app.save_cfg()
+            # v5.17（B4）：中途开启历史立即生效——当前会话也挂载 HistoryStore，
+            # 不必等重启（关闭时保留内存中的旧记录，仅停止新增写入）
+            if history.get("enabled") and getattr(self.app, "history", None) is None:
+                self.app.history = HistoryStore(
+                    max_entries=history.get("max_entries", 100)
+                )
             messagebox.showinfo("保存成功", "设置已保存（录音热键等需重启生效）", parent=self.root)
         except Exception as e:
             messagebox.showerror("保存失败", str(e), parent=self.root)
