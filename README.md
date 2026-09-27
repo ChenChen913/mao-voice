@@ -18,13 +18,15 @@ mao-voice/
 ├── PRD_AI语音输入法.md              # 产品需求文档
 ├── SPEC_AI语音输入法_MVP.md         # 技术规格文档
 ├── AI语音输入法_调研与产品设计.md    # 需求调研与竞品分析
+├── packaging/                       # 📦 PyInstaller 打包（build_exe.py + 图标）
+├── docs/                            # 计划与资料（提示词/审核报告等）
 ├── voice_ime/
 │   ├── main.py                      # 入口：toggle 状态机 + 管线编排
 │   ├── config.py / config.example.json
 │   ├── hotkey.py / recorder.py / asr.py / refiner.py
 │   ├── safe_inject.py / ui.py / vad.py
 │   ├── cloud_asr.py / doctor.py / orchestrate.py
-│   ├── settings_ui.py / history.py / download_model.py
+│   ├── settings_ui.py / history.py / learn.py / download_model.py
 │   ├── 词库.txt / 启动.bat / requirements.txt
 │   ├── models/                      # 模型（不入库，见部署文档 §5.5）
 │   ├── tasks/ results/              # 编排工具按需生成的历史工作区/结果（不入库）
@@ -78,7 +80,11 @@ python main.py                          # 或双击 启动.bat
 - `asr.language`：`null` = 自动检测（中英混杂友好）；`"zh"` = 固定中文；
 - `recorder.auto_stop_silence_sec`：静音超时自动结束录音（0 = 关闭）；
 - `refine.level`：`conservative`（保守纠错，默认）/ `light` / `polish`；
-- 不填 `refine.api_key` 时自动跳过润色，直接输出原始转写。
+- 不填 `refine.api_key` 时自动跳过润色，直接输出原始转写；
+- `asr.cloud_fallback`：云端端点配置完整时（`asr.cloud.base_url` + key），本地转写**连续失败 2 次**自动切云端兜底（会话内粘滞，重启恢复本地）；
+- `recorder.warmup_drafts`：录音中用前 N 个分块做模型预热（默认 1，0=关闭；旧版每 2 秒空转一次推理已收敛）；
+- `inject.paste_mode`：`auto`（默认，终端类窗口自动改用 Unicode 直注）/ `ctrl_v` / `unicode`；`inject.terminal_classes` 可自定义终端窗口类名清单；
+- `learn.enabled`：**自学习纠错**（默认关闭）——成功润色的 (原文→结果) 差异自动沉淀为高频规则（`learned_rules.json`，明文，隐私注意），拼入润色提示词，越用越像你；设置窗口"历史"页可开启/清空。
 
 > ⚠️ `config.json` 含密钥，已在 `.gitignore` 中排除；仓库只提供脱敏的 `config.example.json`。
 
@@ -158,10 +164,10 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 ## 路线图
 
 - **P1 补全**：✅ 润色强度运行时切换（F9）、✅ 输入历史记录（F12，设置窗口可查看）
-- **工程化**：✅ pytest 单测 + GitHub Actions CI、✅ 一键模型下载脚本（ModelScope）、✅ 托盘图标 + 设置窗口、⏳ PyInstaller 打包 Release
-- **差异化**：自学习纠错引擎（越用越像你）、语音编辑指令、悬浮条右键菜单 + 声音反馈
-- **云端兜底**：`cloud_asr.py` 已就绪，待接入 OpenAI 兼容端点实测（当前未验证）
-- **跨平台**：翻译/人设模式、macOS 版（`提示词.txt` Swift 方案）
+- **工程化**：✅ pytest 单测 + GitHub Actions CI、✅ 一键模型下载脚本（ModelScope）、✅ 托盘图标 + 设置窗口、✅ PyInstaller 打包（`packaging/build_exe.py` 本地构建 + `package.yml` tag 触发 CI 构建/发布 Release）
+- **差异化**：✅ 自学习纠错引擎 MVP（纠错对沉淀 → 规则库 → 拼入润色提示词，默认关闭可在设置开启）、语音编辑指令、悬浮条右键菜单 + 声音反馈
+- **云端兜底**：✅ `cloud_asr.py` 就绪 + 本地连续失败自动切换（v5.18）；⏳ 真实端点端到端实测（当前未验证）
+- **跨平台**：翻译/人设模式、macOS 版（`docs/提示词.txt` Swift 方案）
 
 > 完整路线图与优先级分析见 `项目审核报告.md` §7~§8。
 
@@ -207,6 +213,7 @@ ocr scan --exclude "models/**,tasks/**,tests/**,results/**,__pycache__/**,*.png,
 - **v5.15 修复 CI 失败**：Overlay 改为复用传入的 Tk 根窗口（消除双根设计，修复 GitHub Actions 下 `tcl_findLibrary` 报错）；UI 测试改用会话级共享 Tk 根，避免创建/销毁循环导致的不稳定；单测 59 项全部通过
 - **v5.16 深度审核修复（2026-08-04）**：① ASR 推理串行化锁（草稿/整段转写互斥）；② 隐私加固——API Key 输入框掩码、历史记录默认关闭并加明文风险提示、history.json/result.txt 等加入 .gitignore；③ 注入链路——恢复延迟可配置（默认 200ms）、注入前校验前台窗口未切换；④ 录音最大时长（默认 300s，0=不限）与处理结束后释放音频内存；⑤ 热键防御（非法/冲突回退并警告、设置页查重、托盘文案动态化）；⑥ resolve_keys 统一接线、云端 ASR 尊重 language 配置、提示词声明用户输入为纯数据；⑦ 落盘统一 fsync、recorder 锁内取流、refiner 超时容错、死配置接线；⑧ 删除死代码 draft_smoother 与 _last_draft；⑨ 测试补强（safe_inject 恢复路径/并发串行化/状态机）至 77 项，移除 pyperclip 死依赖并锁定 faster-whisper/ctranslate2 主版本
 - **v5.17 第二轮审核修复（2026-08-04）**：① 轮询在锁内取局部 recorder，数值配置（静音超时/最大时长/提示时长/截断长度）统一类型钳制，手改 config 不再杀死轮询；② 热键 worker 内 stop 改非阻塞投递，防队列满自死锁；③ 注入恢复延迟钳制到 0.05~5s 并修正 docstring；④ doctor 的 API Key 检查支持 DEEPSEEK_API_KEY、并校验全部三个热键；⑤ 默认配置与 config.example.json 对齐（medium 相对路径 + 语言自动检测）；⑥ config.json 明文 API Key 已清空（请改用环境变量并轮换旧 key）；⑦ 自动结束录音（静音/时长上限）有悬浮窗提示；⑧ 焦点切换/UIPI 中止注入时文本降级复制到剪贴板，不再丢字；⑨ 设置页中途开启历史立即生效；⑩ 单字符热键兼容 Caps Lock 大小写；测试增至 92 项
+- **v5.18 分发与差异化（2026-09-28）**：① **PyInstaller 打包**——frozen 路径适配（config/词库/模型/学习记录统一落 exe 目录）、CUDA DLL 随包、图标、`packaging/build_exe.py` 一键构建 + `package.yml` tag 触发 CI 构建并发布 Release；② **注入盲区**——新增 Unicode 直注通道（SendInput，不占剪贴板、对输入法免疫），`paste_mode=auto` 时终端类窗口（conhost/Windows Terminal/mintty/PuTTY）自动切换，"未配置 Key"降级提示只弹一次；③ **草稿预热收敛**——录音中草稿推理从"每 2 秒空转一次"收敛为仅首个分块预热（`recorder.warmup_drafts`，CPU 模式不再拖着最终转写）；④ **云端自动兜底**——本地转写连续失败 2 次自动切云端（`asr.cloud_fallback`，会话内粘滞）；⑤ **自学习纠错 MVP**——润色差异沉淀为"原词→修正"规则库（`learn.py` + `learned_rules.json`，默认关闭、设置页可开启/清空），高频规则拼入润色提示词；⑥ 仓库卫生——两轮深度审核报告入库、`提示词.txt` 挪至 `docs/`；测试增至 117 项
 
 </details>
 
