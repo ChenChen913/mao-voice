@@ -31,3 +31,13 @@ __pycache__/
 
 # ---- screenshots / demo artifacts ----
 *.png
+
+# ---- self-learning rules (v5.18, plaintext user dictation content) ----
+voice_ime/learned_rules.json
+voice_ime/learned_rules.demo.json
+
+# ---- pyinstaller build artifacts (v5.18) ----
+build/
+dist/
+*.spec
+packaging/__pycache__/

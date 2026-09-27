@@ -2,8 +2,15 @@
 import json
 import logging
 import os
+import sys
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# v5.18：PyInstaller 打包（frozen）时，config.json/词库.txt/models 等可写文件
+# 必须落在 exe 同目录（用户可见、可编辑），而不是解包临时目录 _internal 里；
+# 源码运行时维持"本文件所在目录"的既有行为。
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 WORDS_PATH = os.path.join(BASE_DIR, "词库.txt")
 
@@ -20,10 +27,21 @@ DEFAULT_CONFIG = {
         # （medium），避免"默认 small 会联网 HuggingFace"与 example 拷贝后行为不一致
         "model": "models/faster-whisper-medium",
         "language": None,  # None=自动检测（中英混杂友好）
+        # v5.18：云端兜底——engine=whisper 且云端端点配置完整时，本地连续失败
+        # 自动切换云端（会话内粘滞）；engine=cloud 时本项不参与（云端即主引擎）
+        "cloud_fallback": True,
         "cloud": {"base_url": "", "api_key": "", "model": "whisper-1"},
     },
     # v5.16（M4）：最大录音时长（秒，0=不限），防热键误触/静音会话无限占用内存
-    "recorder": {"auto_stop_silence_sec": 0, "device": "", "max_duration_sec": 300},
+    # v5.18：warmup_drafts——录音中用前 N 个分块做模型预热转写（结果不展示）。
+    # 1=仅预热一次（默认，推荐）；0=关闭预热；旧版"每个分块都转写"的代价是
+    # CPU 模式下推理锁几乎被草稿全程占用，白白消耗算力还拖慢最终转写
+    "recorder": {
+        "auto_stop_silence_sec": 0,
+        "device": "",
+        "max_duration_sec": 300,
+        "warmup_drafts": 1,
+    },
     # v5.13.4：输入历史记录（内存队列 + JSON 落盘）
     # v5.16（C2）：默认关闭——语音转写原文与润色结果明文落盘属于隐私数据，
     # 用户明确开启前不写入
@@ -38,7 +56,25 @@ DEFAULT_CONFIG = {
     },
     "ui": {"preview_sec": 1.5, "max_chars": 300},
     # v5.16（M2/B7）：注入行为配置
-    "inject": {"restore_delay_sec": 0.2, "require_same_focus": True},
+    # v5.18：paste_mode——粘贴注入方式。"auto"=默认 Ctrl+V，但目标窗口类名命中
+    # terminal_classes（终端类应用 Ctrl+V 不是粘贴）时改用 Unicode 直注；
+    # "ctrl_v"=始终剪贴板+Ctrl+V；"unicode"=始终 Unicode 直注（不碰剪贴板，
+    # 代价是注入的文本无法用撤回恢复、不支持目标应用的粘贴富文本行为）
+    "inject": {
+        "restore_delay_sec": 0.2,
+        "require_same_focus": True,
+        "paste_mode": "auto",
+        "terminal_classes": [
+            "ConsoleWindowClass",            # 经典 conhost
+            "CASCADIA_HOSTING_WINDOW_CLASS",  # Windows Terminal
+            "mintty",                          # Git Bash / Cygwin
+            "PuTTY",
+        ],
+    },
+    # v5.18：自学习纠错（MVP）——成功注入的 (原始转写, 润色结果) 差异沉淀为
+    # "原词→修正"规则（learned_rules.json，明文落盘，默认关闭，与 history 同一隐私标准）；
+    # 高频规则（count ≥ min_count）拼入润色提示词，越用越像你
+    "learn": {"enabled": False, "min_count": 2, "max_rules": 200},
 }
 
 

@@ -238,3 +238,124 @@ def test_finish_recording_starts_single_worker(tmp_path, monkeypatch):
 
     assert len(started) == 1
     assert app.state == "PROCESSING"
+
+
+# ==================== v5.18：草稿预热收敛 / 无 Key 单次提示 / 学习沉淀 ====================
+
+def test_on_draft_warmup_limit(tmp_path):
+    """v5.18：草稿转写仅预热前 warmup_drafts 个分块，后续分块直接跳过。"""
+    app = _make_app(tmp_path)
+    app.state = "RECORDING"
+    calls = []
+    app.asr.transcribe = lambda audio: calls.append(len(audio)) or "x"
+
+    app._on_draft(b"1")
+    app._on_draft(b"2")
+    app._on_draft(b"3")
+    assert len(calls) == 1, "warmup_drafts 默认 1：只应转写首个分块"
+
+    # 0 = 关闭预热
+    app2 = _make_app(tmp_path)
+    app2.state = "RECORDING"
+    app2.cfg["recorder"]["warmup_drafts"] = 0
+    calls2 = []
+    app2.asr.transcribe = lambda audio: calls2.append(audio) or "x"
+    app2._on_draft(b"1")
+    assert calls2 == []
+
+
+def test_on_draft_resets_each_recording(tmp_path):
+    """每次新录音（_start_recording）重置预热计数。"""
+    app = _make_app(tmp_path)
+    app.state = "RECORDING"
+    calls = []
+    app.asr.transcribe = lambda audio: calls.append(audio) or "x"
+    app._on_draft(b"1")
+    app._on_draft(b"2")
+    assert len(calls) == 1
+    app._draft_count = 0  # 模拟 _start_recording 的重置
+    app._on_draft(b"3")
+    assert len(calls) == 2
+
+
+def test_no_key_notice_shown_once(tmp_path, monkeypatch):
+    """v5.18：未配置 Key 的降级提示只弹一次 ERROR，之后只留控制台日志。"""
+    app = _make_app(tmp_path)
+    app.recorder = FakeRecorder(duration=1.0)
+    app.state = "RECORDING"
+    app.history = None
+    app.refiner = FakeRefiner()  # enabled=False
+    app.asr.transcribe = lambda audio: "原始文本"
+    monkeypatch.setattr(
+        main.safe_inject, "inject", lambda *a, **k: (True, "ok")
+    )
+    monkeypatch.setattr(main.time, "sleep", lambda s: None)
+
+    app._process()
+    # 第二轮：模拟真实流程重新创建 recorder（上一轮 finally 已将其置 None）
+    app.recorder = FakeRecorder(duration=1.0)
+    app.state = "RECORDING"
+    app._process()
+
+    # _post 走 _ui_queue（测试里没有 poll_ui 消费），直接数队列里的 ERROR 状态
+    states = [p[1][0] for p in list(app._ui_queue.queue) if p[0] == "state"]
+    errors = [s for s in states if s == "ERROR"]
+    assert len(errors) == 1, "无 Key 提示只应弹一次，实际 {}".format(len(errors))
+
+
+def test_learn_rules_accumulate_on_success(tmp_path, monkeypatch):
+    """v5.18：注入成功且润色有改动时，(raw, final) 沉淀进学习规则库。"""
+    app = _make_app(tmp_path)
+    app.recorder = FakeRecorder(duration=1.0)
+    app.state = "RECORDING"
+    app.history = None
+    added = []
+
+    class FakeLearn:
+        def add(self, raw, final):
+            added.append((raw, final))
+
+        def build_block(self):
+            return ""
+
+    app.learn = FakeLearn()
+    app.refiner = FakeRefiner()
+    app.refiner.enabled = True
+    app.refiner.refine = lambda raw, words_block="": raw + "！"
+    app.asr.transcribe = lambda audio: "你好"
+    monkeypatch.setattr(
+        main.safe_inject, "inject", lambda *a, **k: (True, "ok")
+    )
+    monkeypatch.setattr(main.time, "sleep", lambda s: None)
+
+    app._process()
+
+    assert added == [("你好", "你好！")]
+
+
+def test_learn_block_merged_into_words_block(tmp_path, monkeypatch):
+    """v5.18：学习规则块拼进 build_words_block 的结果一起传给润色。"""
+    app = _make_app(tmp_path)
+    app.recorder = FakeRecorder(duration=1.0)
+    app.state = "RECORDING"
+    app.history = None
+
+    class FakeLearn:
+        def build_block(self):
+            return "- 配森 → Python"
+
+    app.learn = FakeLearn()
+    seen = {}
+    app.refiner = FakeRefiner()
+    app.refiner.enabled = True
+    app.refiner.refine = lambda raw, words_block="": seen.update(words_block=words_block) or raw
+    app.asr.transcribe = lambda audio: "你好"
+    monkeypatch.setattr(
+        main.safe_inject, "inject", lambda *a, **k: (True, "ok")
+    )
+    monkeypatch.setattr(main.time, "sleep", lambda s: None)
+    monkeypatch.setattr(main, "build_words_block", lambda: "（无）")
+
+    app._process()
+
+    assert "配森 → Python" in seen["words_block"]

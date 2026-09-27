@@ -13,14 +13,18 @@ import os
 from config import build_words_block, clamp_number, ensure_defaults, load_config, resolve_keys, save_config
 from hotkey import HOTKEY_LABELS, HotkeyListener, parse_key
 from recorder import Recorder
-from asr import WhisperEngine
+from asr import FallbackASR, WhisperEngine
 from refiner import Refiner
 import safe_inject
 from history import HistoryStore
+from learn import LearnedRules, append_learned_block
 from ui import Overlay
 from settings_ui import SettingsWindow, TrayIcon
 
 MIN_DURATION = 0.5
+
+# v5.18：本地引擎连续失败达到该次数后自动切换云端兜底（FallbackASR）
+CLOUD_FALLBACK_THRESHOLD = 2
 
 
 def _current_root_hwnd():
@@ -38,19 +42,34 @@ def _current_root_hwnd():
 
 
 def make_asr(cfg):
-    """按配置选择 ASR 引擎：云端（需配置）> 本地 whisper。"""
+    """按配置选择 ASR 引擎：云端（需配置）> 本地 whisper（可带云端自动兜底）。
+
+    v5.18 兜底规则：
+    - engine=cloud：云端即主引擎（配置不完整时照旧回退本地 whisper）；
+    - engine=whisper：云端端点配置完整（base_url + key）且 asr.cloud_fallback
+      为 True 时，用 FallbackASR 包装——本地连续失败自动切云端（会话内粘滞）。
+    """
     a = cfg.get("asr", {})
     cloud = a.get("cloud", {})
     # v5.16（M3）：统一走 resolve_keys（配置为空时回退环境变量，且不写回 cfg）
     _, cloud_key = resolve_keys(cfg)
-    if a.get("engine") == "cloud" and cloud_key and cloud.get("base_url"):
+    cloud_engine = None
+    if cloud_key and cloud.get("base_url"):
         from cloud_asr import CloudASREngine
-        return CloudASREngine(
+        cloud_engine = CloudASREngine(
             base_url=cloud["base_url"], api_key=cloud_key,
             model=cloud.get("model", "whisper-1"),
             language=a.get("language"),  # C5：云端 ASR 尊重 asr.language（None=自动）
         )
-    return WhisperEngine(a.get("model", "small"), a.get("language", "zh"))
+    if a.get("engine") == "cloud":
+        if cloud_engine is not None:
+            return cloud_engine
+        # 云端配置不完整：回退本地（保持既有行为）
+        return WhisperEngine(a.get("model", "small"), a.get("language", "zh"))
+    primary = WhisperEngine(a.get("model", "small"), a.get("language", "zh"))
+    if cloud_engine is not None and a.get("cloud_fallback", True):
+        return FallbackASR(primary, cloud_engine, fail_threshold=CLOUD_FALLBACK_THRESHOLD)
+    return primary
 
 
 class App:
@@ -84,6 +103,18 @@ class App:
         self._toast_text = None      # 悬浮窗短暂提示文本（如润色强度切换）
         self._toast_until = 0.0      # 提示到期时间（monotonic）
         self._target_hwnd = 0        # 录音结束时的前台窗口句柄（B7 焦点校验）
+        # v5.18：草稿预热计数（本会话已转写预热的分块数，_start_recording 时清零）
+        self._draft_count = 0
+        # v5.18：无 Key 降级提示只弹一次（每次说话都弹红色 ERROR 属于打扰）
+        self._no_key_warned = False
+        # v5.18：自学习纠错规则库（默认关闭；设置页中途开启后立即生效，与 history 一致）
+        learn_cfg = cfg.get("learn", {})
+        self.learn = None
+        if learn_cfg.get("enabled", False):
+            self.learn = LearnedRules(
+                min_count=learn_cfg.get("min_count", 2),
+                max_rules=learn_cfg.get("max_rules", 200),
+            )
 
     # ---------- 热键事件（pynput 线程） ----------
     def on_toggle(self):
@@ -169,6 +200,7 @@ class App:
 
     def _start_recording(self):
         self._last_rms = 0.0
+        self._draft_count = 0  # v5.18：每次新录音重新计数草稿预热分块
         label = HOTKEY_LABELS.get(self.cfg["hotkey"], self.cfg["hotkey"])
         with self._lock:
             if self.state != "RECORDING":
@@ -245,14 +277,26 @@ class App:
 
     # ---------- 录音期间增量草稿 ----------
     def _on_draft(self, audio):
+        """草稿分块转写：仅用于模型预热（结果不展示、不落任何字段）。
+
+        v5.18 收敛：原实现每个 2s 分块都做一次完整推理，但结果自 v5.16 起
+        已无任何消费方——预热在第一个分块就完成，后续全是白烧 GPU/CPU，
+        且 CPU 模式下推理锁几乎被草稿全程占用，反而拖慢最终转写。
+        现只转写前 recorder.warmup_drafts 个分块（默认 1，0=关闭）。
+        """
         try:
             with self._lock:
                 if self.state != "RECORDING":
                     # v5.11：结束录音（已进入 PROCESSING）后不再发起新的增量转写，
                     # 缩小与最终整段转写的并发窗口
                     return
-            # v5.16（C10）：增量转写仅用于模型预热（与 _process 共用推理锁后
-            # 天然串行），不再写入无读取方的 _last_draft 字段
+                # v5.17（B2）：配置容错沿用 clamp_number；上限 10 防手改成超大值
+                limit = int(clamp_number(
+                    self.cfg.get("recorder", {}).get("warmup_drafts", 1), 1, lo=0, hi=10
+                ))
+                if limit <= 0 or self._draft_count >= limit:
+                    return
+                self._draft_count += 1
             self.asr.transcribe(audio)
         except Exception:
             logging.exception("增量草稿转写异常（已忽略，不影响录音）")
@@ -313,6 +357,8 @@ class App:
                 return
 
             words_block = build_words_block()
+            # v5.18：高频学习规则拼入词库块（沿用词库的数据定界防注入声明）
+            words_block = append_learned_block(words_block, self.learn)
             final = raw
             if self.refiner.enabled:
                 self._post("REFINING", "✨ 润色中…")
@@ -323,8 +369,14 @@ class App:
                     self._post("ERROR", "润色失败，已输出原始转写：{}".format(e))
                     time.sleep(1.2)
             else:
-                self._post("ERROR", "未配置 API Key，已输出原始转写")
-                time.sleep(1.2)
+                # v5.18：正常降级路径不再每次都弹红色 ERROR（打扰），
+                # 首次弹提示，之后只在控制台留一行日志
+                if not self._no_key_warned:
+                    self._no_key_warned = True
+                    self._post("ERROR", "未配置 API Key，已输出原始转写")
+                    time.sleep(1.2)
+                else:
+                    print("[提示] 未配置 API Key，已输出原始转写（本次不再弹窗提示）")
 
             # v5 起不再在浮窗预览转写内容：润色完成后直接注入输入框
             # （用户反馈"先显示再注入"是多余步骤；状态提示仍保留在浮窗）
@@ -335,6 +387,8 @@ class App:
                 restore_delay_sec=inject_cfg.get("restore_delay_sec", 0.2),
                 expected_hwnd=self._target_hwnd,
                 require_same_focus=inject_cfg.get("require_same_focus", True),
+                paste_mode=inject_cfg.get("paste_mode", "auto"),
+                terminal_classes=inject_cfg.get("terminal_classes"),
             )
             if not ok:
                 self._post("ERROR", "注入失败：{}".format(reason))
@@ -348,6 +402,13 @@ class App:
                     self.history.add(raw, final, duration_s=recorder.duration)
                 except Exception:
                     logging.exception("写入历史记录失败（已忽略）")
+            # v5.18：自学习——把 (原始转写, 润色结果) 差异沉淀为纠错规则
+            # （润色关闭/失败时 final == raw，extract_pairs 自然产出空集）
+            if ok and self.learn is not None:
+                try:
+                    self.learn.add(raw, final)
+                except Exception:
+                    logging.exception("学习规则沉淀失败（已忽略）")
         except Exception as e:
             self._post("ERROR", "出错了：{}".format(e))
             time.sleep(2.5)

@@ -38,6 +38,26 @@ NORMALIZE_MIN_RMS = 1e-3                  # 整体 RMS 低于该值视为近静�
 # =============================================================================
 
 
+def _frozen_nvidia_dirs():
+    """PyInstaller 打包（frozen）时定位随包分发的 nvidia DLL 目录（v5.18）。
+
+    打包脚本把 nvidia pip 包的 cublas/cudnn DLL 收进 <_MEIPASS>/nvidia/<库名>/bin；
+    frozen 环境下 importlib/sys.path 都不再反映 pip 布局，必须按该固定结构查找。
+    非 frozen 环境返回空列表。
+    """
+    if not getattr(sys, "frozen", False):
+        return []
+    base = getattr(sys, "_MEIPASS", None) or os.path.dirname(sys.executable)
+    nvidia_root = os.path.join(base, "nvidia")
+    dirs = []
+    if os.path.isdir(nvidia_root):
+        for name in sorted(os.listdir(nvidia_root)):
+            d = os.path.join(nvidia_root, name, "bin")
+            if os.path.isdir(d):
+                dirs.append(d)
+    return dirs
+
+
 def _nvidia_dll_dirs():
     """定位 nvidia pip 包（nvidia-cublas-cu12 / nvidia-cudnn-cu12）的 DLL 目录，去重保序。
 
@@ -57,6 +77,9 @@ def _nvidia_dll_dirs():
             seen.add(d)
             dirs.append(d)
 
+    # 方案零：frozen（打包）环境按随包分发的固定结构查找
+    for d in _frozen_nvidia_dirs():
+        _add(d)
     # 方案一：定位 nvidia.cublas / nvidia.cudnn 包位置（其 bin 在包目录的上级）
     for pkg in ("nvidia.cublas", "nvidia.cudnn"):
         try:
@@ -108,6 +131,9 @@ def _cuda_libs_ready() -> bool:
     import glob as _glob
 
     def _find(dll_pattern):
+        for d in _frozen_nvidia_dirs():
+            if _glob.glob(os.path.join(d, dll_pattern)):
+                return True
         for p in os.environ.get("PATH", "").split(os.pathsep):
             if p and _glob.glob(os.path.join(p, dll_pattern)):
                 return True
@@ -380,6 +406,60 @@ class WhisperEngine:
             self._load()
         except Exception:
             logging.warning("模型预热失败（首次转写时会重试）：", exc_info=True)
+
+
+class FallbackASR:
+    """主引擎 + 备用引擎的自动兜底包装（v5.18）。
+
+    主引擎（本地 whisper）连续失败 fail_threshold 次后，后续转写自动切到
+    备用引擎（云端），会话内粘滞：一旦切换不再回退本地（避免反复撞同一个
+    故障；下次重启应用重新从本地开始）。备用引擎自身失败则照常抛出，
+    由调用方展示"转写失败"。
+
+    与单引擎同一接口：transcribe(audio) -> str；warmup() 只预热主引擎
+    （云端按需连接，启动时不联网探测）。
+    """
+
+    def __init__(self, primary, secondary, fail_threshold=2):
+        self.primary = primary
+        self.secondary = secondary
+        self.fail_threshold = max(1, int(fail_threshold))
+        self._fail_count = 0
+        self._use_secondary = False
+        self._switch_lock = threading.Lock()
+
+    def transcribe(self, audio):
+        with self._switch_lock:
+            if self._use_secondary:
+                return self.secondary.transcribe(audio)
+        try:
+            result = self.primary.transcribe(audio)
+        except Exception:
+            with self._switch_lock:
+                self._fail_count += 1
+                switch = self._fail_count >= self.fail_threshold
+                if switch:
+                    self._use_secondary = True
+            if not switch:
+                raise
+            logging.warning(
+                "本地转写连续失败 %d 次，本次起切换云端兜底引擎（会话内不再回退）",
+                self.fail_threshold,
+            )
+            return self.secondary.transcribe(audio)
+        else:
+            with self._switch_lock:
+                self._fail_count = 0
+            return result
+
+    @property
+    def active_engine(self):
+        """当前实际使用的引擎名（"local" / "cloud"），供日志与诊断。"""
+        return "cloud" if self._use_secondary else "local"
+
+    def warmup(self):
+        if hasattr(self.primary, "warmup"):
+            self.primary.warmup()
 
 
 if __name__ == "__main__":

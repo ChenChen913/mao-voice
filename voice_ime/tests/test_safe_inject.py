@@ -28,6 +28,9 @@ def _mock_full_inject(monkeypatch):
     sleeps = []
     monkeypatch.setattr(safe_inject.time, "sleep", lambda s: sleeps.append(s))
     monkeypatch.setattr(safe_inject, "_check_uipi_block", lambda: (False, ""))
+    # v5.18：钉死窗口类名解析（测试环境前台可能是终端，auto 模式会误入 Unicode 通道）
+    monkeypatch.setattr(safe_inject, "_foreground_root_hwnd", lambda: 0)
+    monkeypatch.setattr(safe_inject, "_window_class_name", lambda h: "FakeWindow")
     monkeypatch.setattr(safe_inject, "_save_all_clipboard_formats", lambda: (0, []))
     monkeypatch.setattr(safe_inject, "_open_clipboard", lambda *a: True)
     monkeypatch.setattr(safe_inject, "_restore_clipboard_from_saved",
@@ -143,3 +146,83 @@ def test_restore_partial_failure_frees_remaining_and_clears(monkeypatch):
     assert "SetClipboardData 失败" in msg
     assert saved == [], "失败后必须清空 saved，防止调用方 double-free"
     assert freed == [11, 12]
+
+
+# ==================== v5.18：粘贴通道选择与 Unicode 直注 ====================
+
+def test_resolve_paste_mode_explicit():
+    assert safe_inject._resolve_paste_mode("Notepad", "unicode") == "unicode"
+    assert safe_inject._resolve_paste_mode("mintty", "ctrl_v") == "ctrl_v"
+
+
+def test_resolve_paste_mode_auto_terminal_classes():
+    # auto：终端类名子串命中（大小写不敏感）→ Unicode 直注
+    assert safe_inject._resolve_paste_mode("ConsoleWindowClass", "auto") == "unicode"
+    assert safe_inject._resolve_paste_mode("CASCADIA_HOSTING_WINDOW_CLASS", "auto") == "unicode"
+    assert safe_inject._resolve_paste_mode("mintty.exe 窗口", "auto") == "unicode"
+    assert safe_inject._resolve_paste_mode("PuTTY", "auto") == "unicode"
+
+
+def test_resolve_paste_mode_auto_normal_window():
+    assert safe_inject._resolve_paste_mode("Notepad", "auto") == "ctrl_v"
+    assert safe_inject._resolve_paste_mode("", "auto") == "ctrl_v"  # 类名取不到 → fail-open
+    assert safe_inject._resolve_paste_mode(None, None) == "ctrl_v"  # 缺省 auto
+
+
+def test_resolve_paste_mode_custom_classes():
+    classes = ["MyTerminal"]
+    assert safe_inject._resolve_paste_mode("MyTerminal123", "auto", classes) == "unicode"
+    assert safe_inject._resolve_paste_mode("Notepad", "auto", classes) == "ctrl_v"
+
+
+def test_unicode_key_events_ascii_cjk_surrogate():
+    events = safe_inject._unicode_key_events("A中")
+    # 每个码元按下+抬起：A(1) + 中(1) → 4 个事件
+    assert len(events) == 4
+    assert events[0] == (ord("A"), False) and events[1] == (ord("A"), True)
+    assert events[2] == (ord("中"), False) and events[3] == (ord("中"), True)
+    # 代理对（😀 = U+1F600）：两个 UTF-16 码元 → 4 个事件
+    events = safe_inject._unicode_key_events("😀")
+    assert len(events) == 4
+    # 第 1 个码元（下/上两个事件）是高位代理，第 2 个码元是低位代理
+    assert 0xD800 <= events[0][0] <= 0xDBFF  # high surrogate
+    assert 0xDC00 <= events[2][0] <= 0xDFFF  # low surrogate
+
+
+def test_inject_unicode_channel_skips_clipboard(monkeypatch):
+    """paste_mode=unicode 时直接走 SendInput 通道，完全不碰剪贴板。"""
+    monkeypatch.setattr(safe_inject, "_check_uipi_block", lambda: (False, ""))
+    monkeypatch.setattr(safe_inject, "_foreground_root_hwnd", lambda: 0)
+    monkeypatch.setattr(safe_inject, "_window_class_name", lambda h: "Notepad")
+    clipboard_calls = []
+    monkeypatch.setattr(
+        safe_inject, "_save_all_clipboard_formats",
+        lambda: clipboard_calls.append(1) or (0, []),
+    )
+    sent = []
+    monkeypatch.setattr(
+        safe_inject, "_inject_unicode",
+        lambda t: sent.append(t) or (True, "注入成功（Unicode 直注，未占用剪贴板）"),
+    )
+
+    ok, msg = safe_inject.inject("你好", paste_mode="unicode")
+
+    assert ok is True and "Unicode 直注" in msg
+    assert sent == ["你好"]
+    assert clipboard_calls == [], "Unicode 通道不应打开剪贴板"
+
+
+def test_inject_auto_uses_unicode_for_terminal(monkeypatch):
+    """auto 模式：目标窗口是终端类 → 自动切 Unicode 通道。"""
+    monkeypatch.setattr(safe_inject, "_check_uipi_block", lambda: (False, ""))
+    monkeypatch.setattr(safe_inject, "_foreground_root_hwnd", lambda: 777)
+    monkeypatch.setattr(safe_inject, "_window_class_name", lambda h: "ConsoleWindowClass")
+    sent = []
+    monkeypatch.setattr(
+        safe_inject, "_inject_unicode",
+        lambda t: sent.append(t) or (True, "注入成功（Unicode 直注，未占用剪贴板）"),
+    )
+
+    ok, msg = safe_inject.inject("ls -la", expected_hwnd=777, paste_mode="auto")
+
+    assert ok is True and sent == ["ls -la"]

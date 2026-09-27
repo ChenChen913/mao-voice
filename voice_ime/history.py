@@ -10,7 +10,9 @@ import threading
 import time
 from collections import deque
 
-DEFAULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history.json")
+from config import BASE_DIR
+
+DEFAULT_PATH = os.path.join(BASE_DIR, "history.json")
 
 
 class HistoryStore:

@@ -99,3 +99,14 @@ def test_relative_model_path_resolved(tmp_path, monkeypatch):
     cfg = config.load_config(str(p))
     expected = os.path.normpath(os.path.join(config.BASE_DIR, "models", "faster-whisper-small"))
     assert cfg["asr"]["model"] == expected
+
+
+def test_v518_new_keys_defaults(tmp_path):
+    """v5.18 新配置项：云端兜底/草稿预热/粘贴模式/终端类名/自学习，默认值就位。"""
+    cfg = config.load_config(str(tmp_path / "nope.json"))
+    assert cfg["asr"]["cloud_fallback"] is True
+    assert cfg["recorder"]["warmup_drafts"] == 1
+    assert cfg["inject"]["paste_mode"] == "auto"
+    assert "ConsoleWindowClass" in cfg["inject"]["terminal_classes"]
+    assert cfg["learn"]["enabled"] is False
+    assert cfg["learn"]["min_count"] == 2

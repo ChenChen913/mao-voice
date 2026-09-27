@@ -12,8 +12,10 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from config import BASE_DIR
 from hotkey import HOTKEY_LABELS
 from history import HistoryStore
+from learn import LearnedRules
 
 try:
     import pystray
@@ -23,7 +25,7 @@ except Exception:  # 依赖缺失时托盘功能降级（设置窗口仍可用�
     Image = None
     ImageDraw = None
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 统一使用 config.BASE_DIR：源码运行 = voice_ime/；打包后 = exe 所在目录
 WORDS_PATH = os.path.join(BASE_DIR, "词库.txt")
 
 HOTKEY_CHOICES = ["alt_r", "alt_l", "ctrl_r", "ctrl_l", "shift_r", "shift_l",
@@ -215,6 +217,43 @@ class SettingsWindow:
         self.history_list = tk.Listbox(f, width=90, height=18)
         self.history_list.grid(row=3, column=0, columnspan=2, padx=8, pady=4)
         self._refresh_history()
+        # v5.18：自学习纠错（与历史同类的明文落盘数据，隐私提示一致）
+        ttk.Separator(f).grid(row=4, column=0, columnspan=2, sticky="ew", padx=8, pady=6)
+        ttk.Label(
+            f,
+            text="⚠️ 自学习纠错会把 (原始转写→润色结果) 差异沉淀为 learned_rules.json（明文，含口述内容）",
+            foreground="#B00020",
+        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=2)
+        self.var_learn_enabled = tk.BooleanVar(
+            value=bool(self.cfg.get("learn", {}).get("enabled", False))
+        )
+        ttk.Checkbutton(
+            f, text="启用自学习纠错（高频纠错对自动拼入润色提示词，越用越像你）",
+            variable=self.var_learn_enabled,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", padx=8, pady=2)
+        self.learn_status = ttk.Label(f, text=self._learn_status_text())
+        self.learn_status.grid(row=7, column=0, sticky="w", padx=8)
+        ttk.Button(f, text="清空学习规则", command=self._clear_learned).grid(
+            row=7, column=1, sticky="w", padx=8, pady=4
+        )
+
+    def _learn_status_text(self):
+        store = getattr(self.app, "learn", None)
+        if store is None:
+            return "当前状态：未启用（无规则）"
+        try:
+            return "当前状态：已启用，{} 条生效规则".format(store.count())
+        except Exception:
+            return "当前状态：已启用"
+
+    def _clear_learned(self):
+        store = getattr(self.app, "learn", None)
+        if store is not None:
+            try:
+                store.clear()
+            except Exception:
+                pass
+        self.learn_status.config(text=self._learn_status_text())
 
     # ---------- 控件辅助 ----------
     def _combo(self, parent, label, choices, value, row):
@@ -276,6 +315,7 @@ class SettingsWindow:
         cloud = asr.setdefault("cloud", {})
         history = self.cfg.setdefault("history", {})
         inject = self.cfg.setdefault("inject", {})
+        learn = self.cfg.setdefault("learn", {})
         try:
             self.cfg["hotkey"] = self.var_hotkey.get()
             self.cfg["refine_cycle_hotkey"] = self.var_cycle.get()
@@ -299,6 +339,7 @@ class SettingsWindow:
             inject["restore_delay_sec"] = float(self.var_inject_delay.get())
             inject["require_same_focus"] = bool(self.var_require_focus.get())
             r["max_duration_sec"] = int(float(self.var_max_duration.get()))
+            learn["enabled"] = bool(self.var_learn_enabled.get())
             self.app.save_cfg()
             # v5.17（B4）：中途开启历史立即生效——当前会话也挂载 HistoryStore，
             # 不必等重启（关闭时保留内存中的旧记录，仅停止新增写入）
@@ -306,6 +347,13 @@ class SettingsWindow:
                 self.app.history = HistoryStore(
                     max_entries=history.get("max_entries", 100)
                 )
+            # v5.18：中途开启自学习同样立即生效（沿用 history 的 B4 模式）
+            if learn.get("enabled") and getattr(self.app, "learn", None) is None:
+                self.app.learn = LearnedRules(
+                    min_count=learn.get("min_count", 2),
+                    max_rules=learn.get("max_rules", 200),
+                )
+            self.learn_status.config(text=self._learn_status_text())
             messagebox.showinfo("保存成功", "设置已保存（录音热键等需重启生效）", parent=self.root)
         except Exception as e:
             messagebox.showerror("保存失败", str(e), parent=self.root)

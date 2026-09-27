@@ -65,6 +65,26 @@ ERROR_ACCESS_DENIED = 5
 IMAGE_BITMAP = 0
 LR_COPYRETURNORG = 0x00000004   # CopyImage 返回原始句柄的副本
 
+# -- 键盘注入（v5.18：Unicode 直注通道） --
+INPUT_KEYBOARD = 1
+KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_UNICODE = 0x0004
+
+# v5.18：粘贴注入方式（inject.paste_mode）。
+PASTE_MODE_AUTO = "auto"        # 默认 Ctrl+V；终端类窗口类名命中时改 Unicode 直注
+PASTE_MODE_CTRL_V = "ctrl_v"    # 始终剪贴板 + Ctrl+V
+PASTE_MODE_UNICODE = "unicode"  # 始终 Unicode 直注（不碰剪贴板）
+
+# paste_mode=auto 时按窗口类名子串（大小写不敏感）识别的终端类应用默认清单：
+# 这些应用里 Ctrl+V 往往不是粘贴（conhost 旧版仅右键/Paste 模式、mintty/PuTTY
+# 用 Shift+Ins 或右键），剪贴板+Ctrl+V 会静默失败。可用 inject.terminal_classes 覆盖。
+DEFAULT_TERMINAL_CLASSES = [
+    "ConsoleWindowClass",             # 经典 conhost
+    "CASCADIA_HOSTING_WINDOW_CLASS",  # Windows Terminal
+    "mintty",                         # Git Bash / Cygwin
+    "PuTTY",
+]
+
 # ============================================================================
 # Windows API 函数注册
 # ============================================================================
@@ -140,6 +160,46 @@ user32.GetWindowThreadProcessId.restype = wintypes.DWORD
 
 user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
 user32.GetAncestor.restype = wintypes.HWND
+
+user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetClassNameW.restype = ctypes.c_int
+
+# --- user32 SendInput（Unicode 直注，v5.18） ---
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", wintypes.WORD),
+        ("wScan", wintypes.WORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+    ]
+
+
+class MOUSEINPUT(ctypes.Structure):
+    """仅用于撑起 INPUT 联合体的尺寸（MOUSEINPUT 是最大成员）。"""
+
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+    ]
+
+
+class _INPUT_UNION(ctypes.Union):
+    _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", wintypes.DWORD), ("union", _INPUT_UNION)]
+
+
+user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+user32.SendInput.restype = wintypes.UINT
 
 GA_ROOT = 2  # GetAncestor: 获取根所有者窗口
 
@@ -496,6 +556,84 @@ def _foreground_root_hwnd() -> int:
         return 0
 
 
+def _window_class_name(hwnd: int) -> str:
+    """返回窗口类名；获取失败返回空串（v5.18）。"""
+    if not hwnd:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(256)
+        n = user32.GetClassNameW(int(hwnd), buf, 256)
+        return buf.value if n > 0 else ""
+    except Exception:
+        return ""
+
+
+def _resolve_paste_mode(window_class, paste_mode, terminal_classes=None):
+    """根据目标窗口类名与配置解析实际注入方式（v5.18，纯函数便于测试）。
+
+    - "unicode" / "ctrl_v"：显式指定，直接生效；
+    - "auto"（默认）：窗口类名包含 terminal_classes 任一子串（大小写不敏感）
+      → "unicode"（终端里 Ctrl+V 往往不是粘贴），否则 "ctrl_v"。
+    """
+    mode = (paste_mode or PASTE_MODE_AUTO).strip().lower()
+    if mode in (PASTE_MODE_UNICODE, PASTE_MODE_CTRL_V):
+        return mode
+    classes = terminal_classes if terminal_classes else DEFAULT_TERMINAL_CLASSES
+    wc = (window_class or "").lower()
+    if wc:
+        for tc in classes:
+            tc = str(tc).strip().lower()
+            if tc and tc in wc:
+                return PASTE_MODE_UNICODE
+    return PASTE_MODE_CTRL_V
+
+
+def _unicode_key_events(text):
+    """把文本展开为 KEYEVENTF_UNICODE 按键事件序列（v5.18，纯函数便于测试）。
+
+    返回 [(unicode_code_unit, is_keyup), ...]：每个 UTF-16 码元（含代理对）
+    产生按下 + 抬起两个事件，等效于逐字符敲入，不经过键盘布局/输入法。
+    """
+    events = []
+    for ch in text:
+        units = ch.encode("utf-16-le", errors="replace")
+        for i in range(0, len(units), 2):
+            code = units[i] | (units[i + 1] << 8)
+            events.append((code, False))
+            events.append((code, True))
+    return events
+
+
+def _inject_unicode(text):
+    """用 SendInput(KEYEVENTF_UNICODE) 把文本逐字符注入前台窗口（v5.18）。
+
+    完全不占用剪贴板；绕过键盘布局与输入法（对 CJK 输入法激活状态免疫）。
+    成功返回 (True, 描述)；事件未全部被系统接受返回 (False, 原因)。
+    注意：此通道逐字符敲入，注入的文本无法通过"粘贴覆盖"回退，且部分
+    应用对非布局字符的接受度不同（如个别终端对控制字符的处理）。
+    """
+    if not text:
+        return False, "输入文本为空"
+    events = _unicode_key_events(text)
+    if not events:
+        return False, "文本未产生任何按键事件"
+    inputs = []
+    for code, is_keyup in events:
+        flags = KEYEVENTF_UNICODE | (KEYEVENTF_KEYUP if is_keyup else 0)
+        item = INPUT()
+        item.type = INPUT_KEYBOARD
+        item.union.ki = KEYBDINPUT(0, code, flags, 0, None)
+        inputs.append(item)
+    arr = (INPUT * len(inputs))(*inputs)
+    sent = user32.SendInput(len(arr), arr, ctypes.sizeof(INPUT))
+    if sent != len(arr):
+        err = kernel32.GetLastError()
+        return False, "Unicode 直注未完成（SendInput {}/{}，GetLastError={}）".format(
+            sent, len(arr), err
+        )
+    return True, "注入成功（Unicode 直注，未占用剪贴板）"
+
+
 def _put_text_to_clipboard(text: str) -> bool:
     """尽力把文本写入剪贴板（注入中止时的降级，B3）；失败返回 False。"""
     if not _open_clipboard():
@@ -529,11 +667,19 @@ def inject(
     restore_delay_sec: float = DEFAULT_RESTORE_DELAY_SEC,
     expected_hwnd: int = 0,
     require_same_focus: bool = True,
+    paste_mode: str = PASTE_MODE_AUTO,
+    terminal_classes=None,
 ) -> tuple[bool, str]:
     """
-    将文本注入当前聚焦窗口（剪贴板 + 模拟 Ctrl+V）。
+    将文本注入当前聚焦窗口。
 
-    安全策略：
+    支持两种注入通道（v5.18，由 paste_mode 决定，auto 时按目标窗口类名自动选择）：
+      - 剪贴板 + 模拟 Ctrl+V（默认）：通用性最好，但注入瞬间占用剪贴板；
+      - Unicode 直注（SendInput KEYEVENTF_UNICODE）：逐字符敲入、完全不碰
+        剪贴板、对激活的 CJK 输入法免疫；用于终端（Ctrl+V 不是粘贴）等
+        剪贴板通道失效的场景。
+
+    安全策略（剪贴板通道）：
       1. 注入前保存原剪贴板的【所有格式】（文本/位图/文件列表等）
       2. 检测 UIPI 拦截风险（目标窗口为管理员权限时提前报错）
       3. 将文本放入剪贴板 → 模拟 Ctrl+V → 立即恢复原剪贴板
@@ -541,8 +687,13 @@ def inject(
          可在 inject.restore_delay_sec 调整，钳制范围 0.05~5s）
       5. 通过序列号检测剪贴板是否在操作期间被外部修改，防止误覆盖用户操作
 
+    两种通道共同的注入前检查：UIPI 预检、焦点校验（require_same_focus）。
+
     参数:
         text: 要注入的文本内容（Unicode 字符串）
+        paste_mode: "auto"（默认）/ "ctrl_v" / "unicode"
+        terminal_classes: paste_mode=auto 时识别终端的窗口类名子串清单；
+                          None 用模块默认 DEFAULT_TERMINAL_CLASSES
 
     返回:
         (成功标志, 状态/错误描述)
@@ -585,6 +736,16 @@ def inject(
             if _put_text_to_clipboard(text):
                 return False, "前台窗口已切换，已取消注入；文本已复制到剪贴板，请手动粘贴"
             return False, "前台窗口已切换，已取消注入（文本未粘贴）"
+
+    # ---- 注入通道选择（v5.18）----
+    # 目标窗口优先取录音结束时刻的窗口（expected_hwnd），取不到再问当前前台；
+    # 类名获取失败时按非终端处理（fail-open 到通用 Ctrl+V 通道）。
+    target_hwnd = expected_hwnd or _foreground_root_hwnd()
+    window_class = _window_class_name(target_hwnd)
+    mode = _resolve_paste_mode(window_class, paste_mode, terminal_classes)
+    if mode == PASTE_MODE_UNICODE:
+        ok, msg = _inject_unicode(text)
+        return ok, msg
 
     # ---- 步骤 1：保存当前剪贴板所有格式 ----
     original_seq, saved = _save_all_clipboard_formats()

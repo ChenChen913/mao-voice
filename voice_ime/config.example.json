@@ -6,6 +6,7 @@
     "engine": "whisper",
     "model": "models/faster-whisper-medium",
     "language": null,
+    "cloud_fallback": true,
     "cloud": {
       "base_url": "",
       "api_key": "",
@@ -15,11 +16,17 @@
   "recorder": {
     "auto_stop_silence_sec": 0,
     "device": "",
-    "max_duration_sec": 300
+    "max_duration_sec": 300,
+    "warmup_drafts": 1
   },
   "history": {
     "enabled": false,
     "max_entries": 100
+  },
+  "learn": {
+    "enabled": false,
+    "min_count": 2,
+    "max_rules": 200
   },
   "refine": {
     "enabled": true,
@@ -35,6 +42,13 @@
   },
   "inject": {
     "restore_delay_sec": 0.2,
-    "require_same_focus": true
+    "require_same_focus": true,
+    "paste_mode": "auto",
+    "terminal_classes": [
+      "ConsoleWindowClass",
+      "CASCADIA_HOSTING_WINDOW_CLASS",
+      "mintty",
+      "PuTTY"
+    ]
   }
 }
