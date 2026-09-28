@@ -359,3 +359,30 @@ def test_learn_block_merged_into_words_block(tmp_path, monkeypatch):
     app._process()
 
     assert "配森 → Python" in seen["words_block"]
+
+
+def test_make_asr_wraps_fallback_when_cloud_configured(tmp_path, monkeypatch):
+    """v5.18：engine=whisper + 云端配置完整 → FallbackASR 包装；关掉开关则纯本地。"""
+    from asr import FallbackASR
+    monkeypatch.delenv("ASR_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    cfg = config.load_config(str(tmp_path / "c.json"))
+    cfg["asr"]["engine"] = "whisper"
+    cfg["asr"]["cloud"] = {"base_url": "https://x/v1", "api_key": "sk-c", "model": "whisper-1"}
+
+    engine = main.make_asr(cfg)
+    assert isinstance(engine, FallbackASR)
+
+    cfg["asr"]["cloud_fallback"] = False
+    assert isinstance(main.make_asr(cfg), main.WhisperEngine)
+
+
+def test_make_asr_cloud_incomplete_falls_back_local(tmp_path, monkeypatch):
+    """engine=cloud 但 base_url/key 不完整 → 回退本地（保持既有行为）。"""
+    monkeypatch.delenv("ASR_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    cfg = config.load_config(str(tmp_path / "c.json"))
+    cfg["asr"]["engine"] = "cloud"
+    cfg["asr"]["cloud"] = {"base_url": "", "api_key": "sk-c", "model": "whisper-1"}
+
+    assert isinstance(main.make_asr(cfg), main.WhisperEngine)

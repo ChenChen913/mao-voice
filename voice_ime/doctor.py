@@ -2,7 +2,7 @@
 """环境自检脚本 —— Windows 桌面 AI 语音输入法项目
 
 用法：
-    cd voice_ime/tasks/hermes-doctor
+    cd voice_ime
     python doctor.py
 
 每个检查项独立 try/except，单项失败不影响后续检查。
@@ -64,8 +64,8 @@ _VALID_HOTKEY_NAMES: set[str] = {
 def _project_root() -> Path:
     """基于 __file__ 定位项目根目录（voice_ime/）。
 
-    本文件位于  voice_ime/tasks/hermes-doctor/doctor.py，
-    所以  .parent.parent.parent  == voice_ime/。
+    本文件位于 voice_ime/doctor.py，正常情况下直接返回所在目录；
+    向上逐层回溯（找 main.py）是为了兼容历史布局或被复制的场景。
     """
     d = Path(__file__).resolve().parent
     for _ in range(6):

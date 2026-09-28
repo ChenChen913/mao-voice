@@ -132,11 +132,26 @@ class LearnedRules:
             for wrong, right in pairs:
                 rights = self._rules.setdefault(wrong, {})
                 rights[right] = rights.get(right, 0) + 1
+            # v5.18（三审 m1）：落盘有 max_rules 截断，内存 _rules 也要同步修剪，
+            # 否则长期使用中低频规则只增不减（内存缓慢膨胀）
+            self._prune_locked()
             try:
                 self._save_locked()
             except OSError:
                 logging.warning("学习规则落盘失败（本次仅保留在内存）：%s", self.path)
             return len(pairs)
+
+    def _prune_locked(self):
+        """按频次保留前 max_rules 条，其余从内存移除（与 _flat_locked 截断一致）。"""
+        flat = self._flat_locked()
+        keep = {(r[_KEY_WRONG], r[_KEY_RIGHT]) for r in flat}
+        for wrong in list(self._rules.keys()):
+            rights = self._rules[wrong]
+            for right in list(rights.keys()):
+                if (wrong, right) not in keep:
+                    del rights[right]
+            if not rights:
+                del self._rules[wrong]
 
     def build_block(self):
         """生成拼入润色提示词的规则块；无可用规则（频次不足/为空）返回空串。

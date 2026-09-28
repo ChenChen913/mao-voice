@@ -75,3 +75,13 @@ def test_append_learned_block_merge(tmp_path):
     # 词库为空（"（无）"）时直接替换为规则块
     only_learn = learn.append_learned_block("（无）", store)
     assert "配森 → Python" in only_learn
+
+
+def test_prune_keeps_memory_and_disk_bounded(tmp_path):
+    """三审 m1：max_rules 截断不仅作用于落盘，内存 _rules 也同步修剪。"""
+    store = learn.LearnedRules(path=str(tmp_path / "r.json"), min_count=1, max_rules=3)
+    for i in range(5):
+        store.add("词{}".format(i), "译{}".format(i))
+    assert sum(len(v) for v in store._rules.values()) <= 3
+    data = json.loads(open(store.path, encoding="utf-8").read())
+    assert len(data) <= 3
