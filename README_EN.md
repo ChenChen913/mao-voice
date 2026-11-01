@@ -34,6 +34,7 @@ flowchart LR
 
 - [Why this project exists](#why-this-project-exists)
 - [How it differs](#how-it-differs)
+- [Client preview (work in progress)](#client-preview-work-in-progress)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [Configuration](#configuration)
@@ -71,6 +72,19 @@ Up front: this is neither the most feature-complete nor the most accurate option
 | [CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline) | Windows desktop tool (7k+ stars) | Local FunASR | Hold CapsLock, release to insert; hotwords + LLM polish | More mature with a bigger community; this project uses toggle, conservative correction levels, injection safety and self-learned rules |
 | iFlytek / Sogou input methods | Cross-platform IME | Mostly cloud | Voice inside the IME | Zero setup and strong accuracy; requires installing an IME and uploads audio |
 | Zhipu / Doubao / Typeless AI input | Desktop/mobile AI input | Cloud | Transcription + LLM polish | Complete experience but tied to a subscription and network; this project is offline-capable with swappable models and APIs |
+
+## Client preview (work in progress)
+
+Besides the tray-and-hotkey app, the repo now includes a PySide6 client shell: a main window (Home / History / Dictionary / Settings), the floating capsule and a tray icon, all reusing the existing engine.
+
+![Client main window](docs/images/client-home.png)
+
+```powershell
+cd voice_ime
+python client_main.py     # or double-click 启动客户端.bat
+```
+
+Current state: the main window, tray, capsule and recording pipeline are wired up; the Settings and History pages are still read-only skeletons, with saving and live refresh coming next. The Tk `main.py` remains the stable entry point. Both share `config.json`, so do not run them at the same time.
 
 ## Quick Start
 
@@ -133,14 +147,16 @@ Full configuration reference: [部署文档 §5.4](docs/部署文档.md) (Chines
 
 ```text
 mao-voice/
-├── voice_ime/            # Runtime code: 16 Python modules, ~4,400 lines
-│   ├── main.py           # Entry: recording state machine + pipeline
+├── voice_ime/            # Runtime code: 24 Python modules, ~5,300 lines
+│   ├── main.py           # Tk entry: recording state machine + pipeline
+│   ├── client_main.py    # Qt client entry (preview)
+│   ├── qt_ui/            # Main window / capsule / tray / engine adapter
 │   ├── asr.py            # faster-whisper engine (GPU first, CPU fallback)
 │   ├── safe_inject.py    # Clipboard injection + Unicode typing
 │   ├── learn.py          # Self-learned correction rules
 │   ├── version.py        # Single source of the version number
 │   ├── models/           # Local models (not committed)
-│   └── tests/            # pytest suite (127 tests) + live e2e script
+│   └── tests/            # pytest suite (128 tests) + live smoke scripts
 ├── packaging/            # PyInstaller build script and icon
 ├── docs/                 # Deployment guide, PRD/SPEC/research, audits, demo images
 └── .github/workflows/    # CI tests + tag-triggered packaging/release
@@ -149,12 +165,15 @@ mao-voice/
 ## Development
 
 ```powershell
-python -m pytest voice_ime/tests -q     # run tests (127 passed on 2026-11-01)
+python -m pytest voice_ime/tests -q     # run tests (128 passed on 2026-11-01)
 python -m ruff check voice_ime          # lint (same as CI)
 python -m compileall -q voice_ime       # syntax check
 python voice_ime/tests/e2e_live.py --no-asr   # live smoke: injection + clipboard restore (no model needed)
 python voice_ime/tests/e2e_live.py      # full live smoke: TTS → local ASR → injection (model required)
-python packaging/build_exe.py           # build portable exe
+python voice_ime/tests/client_smoke.py  # Qt client + engine smoke (fake recording/injection)
+python voice_ime/client_main.py         # launch the Qt client (preview)
+python packaging/build_exe.py           # build the Tk exe
+python packaging/build_exe.py --client  # build the Qt client exe (preview)
 ```
 
 - Pushing runs the test CI (Windows + Python 3.12/3.13); a `v*` tag builds and publishes a Release
@@ -188,6 +207,7 @@ More troubleshooting: [部署文档 FAQ](docs/部署文档.md) (Chinese).
 - Input history and learned rules are plaintext on disk (both off by default, warned in settings)
 - Entire audio stays in memory: very long recordings (300 s default cap) grow linearly
 - UI and messages are Chinese-only; the packaged build is only smoke-tested for "process survives" in CI, GPU loading is not verified there
+- Client preview: Settings and History are read-only skeletons with no live refresh; the Tk app and Qt client share the same config, so do not run both
 
 ## Contributing
 

@@ -34,6 +34,7 @@ flowchart LR
 
 - [为什么做这个项目](#为什么做这个项目)
 - [与同类工具的差别](#与同类工具的差别)
+- [客户端预览（开发中）](#客户端预览开发中)
 - [快速开始](#快速开始)
 - [用法](#用法)
 - [配置](#配置)
@@ -71,6 +72,19 @@ flowchart LR
 | [CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline) | Windows 桌面工具（社区 7k+ star） | 本地 FunASR | 按住 CapsLock 说话、松开上屏；支持热词与 LLM 润色 | 更成熟、社区更大；本项目是 toggle 交互，多了保守纠错档位、注入安全与自学习规则 |
 | 讯飞 / 搜狗等商业输入法 | 全平台输入法 | 云端为主 | 输入法内语音 | 免部署、识别强；需安装输入法，语音要上传云端 |
 | 智谱 / 豆包 / Typeless 等 AI 输入法 | 桌面/移动 AI 输入法 | 云端 | 语音转写 + LLM 润色 | 体验完整但依赖订阅与网络；本项目可离线、可换模型与 API |
+
+## 客户端预览（开发中）
+
+除了托盘 + 热键的原有形态，仓库里新增了一个 PySide6 客户端外壳：主窗口（首页 / 历史 / 词库 / 设置）、悬浮胶囊与托盘，直接复用现有引擎。
+
+![客户端主窗口](docs/images/client-home.png)
+
+```powershell
+cd voice_ime
+python client_main.py     # 或双击 启动客户端.bat
+```
+
+当前状态：主窗口、托盘、胶囊与录音管线已接通；设置页、历史页仍是只读骨架，保存与自动刷新在下一阶段接入。Tk 版 `main.py` 仍是稳定入口，两者共用 `config.json`，请不要同时运行。
 
 ## 快速开始
 
@@ -133,14 +147,16 @@ python main.py                          # 或双击 启动.bat
 
 ```text
 mao-voice/
-├── voice_ime/            # 运行时代码：16 个 Python 模块，约 4400 行
-│   ├── main.py           # 入口：录音状态机 + 管线编排
+├── voice_ime/            # 运行时代码：24 个 Python 模块，约 5300 行
+│   ├── main.py           # Tk 版入口：录音状态机 + 管线编排
+│   ├── client_main.py    # Qt 客户端入口（预览）
+│   ├── qt_ui/            # 主窗口 / 悬浮胶囊 / 托盘 / 引擎适配
 │   ├── asr.py            # faster-whisper 引擎（GPU 优先，CPU 回退）
 │   ├── safe_inject.py    # 剪贴板注入 + Unicode 直注
 │   ├── learn.py          # 自学习纠错规则库
 │   ├── version.py        # 版本号单一来源
 │   ├── models/           # 本地模型（不入库）
-│   └── tests/            # pytest 单测（127 项）+ 真机 e2e 脚本
+│   └── tests/            # pytest 单测（128 项）+ 真机冒烟脚本
 ├── packaging/            # PyInstaller 打包脚本与图标
 ├── docs/                 # 部署文档、PRD/SPEC/调研、审核报告、演示截图
 └── .github/workflows/    # CI 测试 + tag 触发打包发布
@@ -149,12 +165,15 @@ mao-voice/
 ## 开发
 
 ```powershell
-python -m pytest voice_ime/tests -q     # 运行测试（2026-11-01 实测 127 passed）
+python -m pytest voice_ime/tests -q     # 运行测试（2026-11-01 实测 128 passed）
 python -m ruff check voice_ime          # 静态检查（CI 同款）
 python -m compileall -q voice_ime       # 语法检查
 python voice_ime/tests/e2e_live.py --no-asr   # 真机冒烟：注入 + 剪贴板恢复（不需要模型）
 python voice_ime/tests/e2e_live.py      # 完整真机冒烟：TTS → 本地 ASR → 注入（需模型）
-python packaging/build_exe.py           # 打包 exe
+python voice_ime/tests/client_smoke.py  # Qt 客户端 + 引擎冒烟（假录音/假注入）
+python voice_ime/client_main.py         # 启动 Qt 客户端（预览）
+python packaging/build_exe.py           # 打包 Tk 版 exe
+python packaging/build_exe.py --client  # 打包 Qt 客户端 exe（预览）
 ```
 
 - 推送到 GitHub 自动跑测试 CI（Windows + Python 3.12/3.13）；打 `v*` tag 触发打包并发布 Release
@@ -188,6 +207,7 @@ A：安装 Python 时未勾选 "Add Python to PATH"，重装并勾选即可。
 - 输入历史与学习规则为明文落盘（均默认关闭，设置页有风险提示）
 - 大块音频全程驻留内存：超长单次录音（默认上限 300 秒）内存占用线性增长
 - 界面与提示仅有中文；打包版只在 CI 做过「进程存活」冒烟，GPU 加载未在 CI 验证
+- 客户端预览版：设置与历史页仍是只读骨架，不会自动刷新；Tk 版与 Qt 客户端共用配置，请勿同时运行
 
 ## 如何贡献
 

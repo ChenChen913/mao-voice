@@ -9,24 +9,27 @@
 2. **版本号**：`voice_ime/version.py` → `5.19.1`（启动日志、设置标题、托盘提示均取此处）
 3. **主语言 / 运行时 / 最低版本**：Python；doctor.py 要求 >= 3.10，CI 在 3.12 / 3.13 测试（`.github/workflows/ci.yml` matrix）
 4. **安装命令**：`pip install -r voice_ime/requirements.txt`（requirements.txt 存在，2026-11-01 实跑 doctor 通过）
-5. **运行命令**：`python main.py`（voice_ime/main.py）或双击 `voice_ime/启动.bat`
-6. **测试命令**：`python -m pytest voice_ime/tests -q` → 实跑结果 **127 passed in 2.13s**（2026-11-01，Python 3.13.3）
+5. **运行命令**：`python main.py`（Tk 版）或双击 `voice_ime/启动.bat`；Qt 客户端预览：`python client_main.py` 或 `启动客户端.bat`
+6. **测试命令**：`python -m pytest voice_ime/tests -q` → 实跑结果 **128 passed in 1.72s**（2026-11-01，Python 3.13.3）
 7. **静态检查**：`python -m ruff check voice_ime`（CI 同款，2026-11-01 实跑通过）
-8. **构建命令**：`python packaging/build_exe.py`（可选 `--cpu-only`；CI 的 package.yml 固定 CPU 版）
+8. **构建命令**：`python packaging/build_exe.py`（Tk 版，可选 `--cpu-only`）；`python packaging/build_exe.py --client` 打包 Qt 客户端（预览）
 9. **环境自检**：`python doctor.py`（7 项；源码首次运行前未建 config.json 时会有 2 项提示，属预期）
-10. **真机端到端冒烟**：`python voice_ime/tests/e2e_live.py --no-asr` → 2026-11-01 实跑 **PASS**（注入成功、剪贴板恢复为哨兵）；完整模式需先下载模型
+10. **真机端到端冒烟**：`python voice_ime/tests/e2e_live.py --no-asr` → 2026-11-01 实跑 **PASS**；`python voice_ime/tests/client_smoke.py` → 2026-11-01 实跑 **PASS**（Qt 客户端 + 假录音/假注入）
 11. **目录结构**：
-    - `voice_ime/` — 运行时代码，**16 个 .py 模块，4389 行**（2026-11-01 `Get-ChildItem voice_ime/*.py` + 行数统计）
-    - `voice_ime/tests/` — 20 个测试相关 .py（127 项用例 + 手动脚本）
+    - `voice_ime/` — 运行时代码，**24 个 .py 模块，5264 行**（2026-11-01 统计，含 `qt_ui/`）
+    - `voice_ime/qt_ui/` — Qt 客户端外壳：主窗口、胶囊、托盘、引擎适配
+    - `voice_ime/client_main.py` — Qt 客户端入口（预览）
+    - `voice_ime/tests/` — 22 个测试相关 .py（128 项用例 + 手动脚本）
     - `packaging/` — PyInstaller 打包脚本与图标
     - `docs/` — 部署文档、PRD/SPEC/调研、更新记录、`docs/audits/` 审核报告、`docs/images/` 实机截图、`docs/plans/`
     - `.github/workflows/` — `ci.yml`（测试）、`package.yml`（tag 触发打包发布，CPU 版）
-12. **主要依赖**（requirements.txt，9 个）：faster-whisper（>=1.0.0,<1.3）、ctranslate2（>=4.0,<5）、sounddevice、pynput、numpy、requests、onnxruntime、pystray、Pillow
+12. **主要依赖**（requirements.txt，10 个）：faster-whisper、ctranslate2、sounddevice、pynput、numpy、requests、onnxruntime、pystray、Pillow、PySide6（客户端预览）
 13. **环境变量**：`DEEPSEEK_API_KEY`（纠错 Key 兜底）、`ASR_API_KEY`（云端 ASR Key 兜底，其次回退 DEEPSEEK_API_KEY）
 14. **模型实测大小**（2026-09-28 记录，未变更）：medium = 1.5G，small = 464M
 15. **许可证**：Apache-2.0（LICENSE 存在）
-16. **文档清单**：README.md / README_EN.md；docs/ 下：部署文档、PRD、SPEC、调研与产品设计、更新记录、`audits/` 四份审核报告 + OCR 审查报告、facts.md
-17. **演示素材**：`docs/images/overlay-recording.png`、`overlay-transcribing.png`、`overlay-injecting.png`（2026-11-01 由真实 Overlay 渲染并截取，非占位图）
+16. **文档清单**：README.md / README_EN.md；docs/ 下：部署文档、PRD、SPEC、调研与产品设计、客户端架构与界面调研、更新记录、`audits/` 四份审核报告 + OCR 审查报告、facts.md
+17. **演示素材**：`docs/images/overlay-*.png`（Tk 胶囊）、`client-home.png`、`client-overlay-recording.png`（Qt 客户端，2026-11-01 真实渲染截取）
+18. **Qt 客户端状态**：主窗口/托盘/胶囊/录音管线已接通；设置页与历史页为只读骨架；最小 Qt 原型包 117.9MB（2026-11-01 PyInstaller 实测）
 
 ## B. 需人工确认的事实（已核对）
 

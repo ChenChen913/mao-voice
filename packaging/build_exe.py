@@ -64,19 +64,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cpu-only", action="store_true",
                         help="不打包 CUDA 运行库（exe 走 CPU 推理，体积小）")
+    parser.add_argument("--client", action="store_true",
+                        help="打包 Qt 客户端（client_main.py），默认打包 Tk 版 main.py")
     args = parser.parse_args()
 
     import PyInstaller.__main__  # 延迟导入：--help 无需依赖
 
+    entry = "client_main.py" if args.client else "main.py"
+    app_name = "mao-voice-client" if args.client else "mao-voice"
     args_list = [
-        os.path.join(SRC, "main.py"),
+        os.path.join(SRC, entry),
         "--noconfirm",
         "--clean",
-        "--name", "mao-voice",
+        "--name", app_name,
         "--icon", ICON,
         # 模块间是同目录平铺导入（from config import ...），把源码目录加进分析路径
         "--paths", SRC,
-        # 托盘：pystray 在 Windows 上动态导入平台后端
+        # 托盘：pystray 在 Windows 上动态导入平台后端（Tk 版仍在使用）
         "--hidden-import", "pystray._win32",
         # faster-whisper 自带 silero VAD onnx 资产；sounddevice 携带 PortAudio DLL
         "--collect-data", "faster_whisper",
@@ -98,14 +102,14 @@ def main():
 
     PyInstaller.__main__.run(args_list)
 
-    dist_dir = os.path.join(ROOT, "dist", "mao-voice")
+    dist_dir = os.path.join(ROOT, "dist", app_name)
     note = os.path.join(dist_dir, "使用说明-打包版.txt")
     with open(note, "w", encoding="utf-8") as f:
         f.write(
             "mao-voice 打包版使用说明\n"
             "========================\n"
-            "1. 双击 mao-voice.exe 运行；首次运行会在本目录创建 config.json 与 词库.txt。\n"
-            "2. 模型不打在包里：把 models/faster-whisper-medium（或 small）目录拷到本目录的\n"
+            "1. 双击 {}.exe 运行；首次运行会在本目录创建 config.json 与 词库.txt。\n".format(app_name)
+            + "2. 模型不打在包里：把 models/faster-whisper-medium（或 small）目录拷到本目录的\n"
             "   models/ 下；或在源码环境运行 voice_ime/download_model.py 下载后整体拷贝。\n"
             "   config.json 里 asr.model 默认 models/faster-whisper-medium，与本说明对齐。\n"
             "3. LLM 纠错需在 config.json 填 refine.api_key（或设置 DEEPSEEK_API_KEY 环境变量）；\n"
