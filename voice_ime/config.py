@@ -54,7 +54,7 @@ DEFAULT_CONFIG = {
         "level": "conservative",
         "timeout_sec": 30,
     },
-    "ui": {"preview_sec": 1.5, "max_chars": 300},
+    "ui": {"preview_sec": 1.5, "max_chars": 300, "autostart": False},
     # v5.16（M2/B7）：注入行为配置
     # v5.18：paste_mode——粘贴注入方式。"auto"=默认 Ctrl+V，但目标窗口类名命中
     # terminal_classes（终端类应用 Ctrl+V 不是粘贴）时改用 Unicode 直注；
@@ -225,6 +225,67 @@ def load_words(path=WORDS_PATH):
     except (OSError, UnicodeDecodeError):
         logging.warning("词库 %s 读取失败，已按空词库处理：", path, exc_info=True)
     return terms, mappings
+
+
+def save_words(terms, mappings, path=WORDS_PATH):
+    """原子写入词库；保留原文件里的注释行，其余按 词条 / 原词=写法 重写。
+
+    空词条、空写法、以及含 "=" 的词条会被拒绝（否则下次读取会被误解析成映射）。
+    """
+    clean_terms = []
+    for term in terms:
+        term = str(term).strip()
+        if not term:
+            continue
+        if "=" in term:
+            raise ValueError("词条不能包含 '='：{}".format(term))
+        if term not in clean_terms:
+            clean_terms.append(term)
+
+    clean_maps = []
+    for key, value in mappings:
+        key, value = str(key).strip(), str(value).strip()
+        if not key or not value:
+            continue
+        if "=" in key:
+            raise ValueError("原词不能包含 '='：{}".format(key))
+        if (key, value) not in clean_maps:
+            clean_maps.append((key, value))
+
+    comments = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                comments = [line.rstrip("\n") for line in f
+                            if line.lstrip().startswith("#")]
+        except (OSError, UnicodeDecodeError):
+            comments = []
+    if not comments:
+        comments = [
+            "# 用户词库：每行一条。支持 原词=指定写法，或直接写词条",
+            "# 示例：",
+            "# 配森=Python",
+            "# 喵酱",
+        ]
+
+    lines = comments + [t for t in clean_terms]
+    lines += ["{}={}".format(k, v) for k, v in clean_maps]
+    text = "\n".join(lines).rstrip("\n") + "\n"
+
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def build_words_block(path=WORDS_PATH):

@@ -81,14 +81,20 @@ Up front: this is neither the most feature-complete nor the most accurate option
 
 Besides the tray-and-hotkey app, the repo now includes a PySide6 client shell restyled after the `code.html` prototype into a dark instrument look: a main window (Home / History / Dictionary / Settings), the floating capsule and a tray icon, all reusing the existing engine.
 
+The client now ships a **first-run wizard** (privacy notes / mic test / model selection / hotkeys and API key, skippable), a **fully editable dictionary** (add, edit, delete, import/export), **history actions** (re-inject, delete, clear), and **model browsing/scanning with four-file validation** in Settings.
+
 ![Client home](docs/images/client-home.png)
 
 <details>
-<summary>More screens: History / Settings / Dictionary / Recording capsule</summary>
+<summary>More screens: first-run wizard / History / Settings / Model settings / Dictionary / Recording capsule</summary>
+
+![First-run wizard](docs/images/client-wizard.png)
 
 ![Client history](docs/images/client-history.png)
 
 ![Client settings](docs/images/client-settings.png)
+
+![Model settings](docs/images/client-settings-model.png)
 
 ![Client dictionary](docs/images/client-dictionary.png)
 
@@ -101,7 +107,7 @@ cd voice_ime
 python client_main.py     # or double-click 启动客户端.bat
 ```
 
-Current state: the main window, tray, capsule and recording pipeline are wired up; Settings can be saved and applied immediately (hotkeys are reloaded), and History refreshes after every injection. Dictionary and per-app modes are still skeletons. The Tk `main.py` remains the stable entry point. Both share `config.json`, so do not run them at the same time.
+Current state: the main window, tray, capsule and recording pipeline are wired up; the first-run wizard, dictionary editing and history actions are complete; Settings applies immediately (model switches rebuild the engine, hotkeys reload, autostart writes to the current-user startup key) and diagnostics can be exported. Per-app modes, a stats page, update checks and the light theme remain future work. The Tk `main.py` remains the stable entry point. Both share `config.json`, so do not run them at the same time.
 
 ## Quick Start
 

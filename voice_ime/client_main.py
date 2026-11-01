@@ -5,14 +5,16 @@
 和 Tk 版（main.py）共用 config.json / 词库.txt / 引擎模块，二者不要同时运行。
 """
 import logging
+import os
 import sys
 import threading
 
 from PySide6.QtCore import QSharedMemory
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog
 
+import autostart
 from asr import missing_local_model
-from config import clamp_number, ensure_defaults, load_config
+from config import CONFIG_PATH, clamp_number, ensure_defaults, load_config, save_config
 from hotkey import HotkeyListener, parse_key
 from qt_ui.client_app import ClientApp
 from qt_ui.main_window import MainWindow
@@ -63,6 +65,7 @@ def _setup_hotkeys(app_logic, cfg):
 
 
 def main():
+    first_run = not os.path.exists(CONFIG_PATH)
     ensure_defaults()
     cfg = load_config()
     model = cfg.get("asr", {}).get("model", "")
@@ -78,6 +81,14 @@ def main():
     qapp.setApplicationName("mao-voice")
     qapp.setQuitOnLastWindowClosed(False)
 
+    if first_run:
+        from qt_ui.wizard import FirstRunWizard
+        wizard = FirstRunWizard(cfg)
+        if wizard.exec() == QDialog.DialogCode.Accepted:
+            cfg = wizard.result_config()
+            save_config(cfg)
+            print("[设置] 首次向导已完成，配置已保存")
+
     window = MainWindow()
     window.setWindowIcon(make_icon())
     window.show()
@@ -89,6 +100,15 @@ def main():
     app_logic = ClientApp(cfg, overlay, root, window)
     window.home.record_clicked.connect(app_logic.on_toggle)
     window.quit_requested.connect(app_logic.exit_app)
+    window.history_delete_requested.connect(app_logic.delete_history)
+    window.history_clear_requested.connect(app_logic.clear_history)
+    window.history_inject_requested.connect(app_logic.reinject_text)
+    window.dictionary_changed.connect(app_logic.reload_dictionary)
+
+    if cfg.get("ui", {}).get("autostart"):
+        ok, message = autostart.set_enabled(True)
+        if not ok:
+            print("[警告] " + message)
 
     if hasattr(app_logic.asr, "warmup"):
         threading.Thread(target=app_logic.asr.warmup, daemon=True).start()

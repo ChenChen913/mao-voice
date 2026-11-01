@@ -9,6 +9,20 @@ import sounddevice as sd
 from vad import VAD
 
 
+def list_input_devices():
+    """返回 [(设备索引, 名称), ...]；sounddevice 不可用时返回空列表。"""
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        return [
+            (index, str(device.get("name") or "输入设备 {}".format(index)))
+            for index, device in enumerate(devices)
+            if device.get("max_input_channels", 0) > 0
+        ]
+    except Exception:
+        return []
+
+
 class Recorder:
     # RMS 归一化经验阈值：实测人声 RMS 达到 0.3 即视为"满格"（1.0），静音≈0
     RMS_NORMALIZE = 0.3

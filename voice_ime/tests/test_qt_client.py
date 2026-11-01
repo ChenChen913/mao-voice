@@ -11,3 +11,4 @@ def test_qt_client_modules_import():
     import qt_ui.overlay  # noqa: F401
     import qt_ui.root  # noqa: F401
     import qt_ui.tray  # noqa: F401
+    import qt_ui.wizard  # noqa: F401

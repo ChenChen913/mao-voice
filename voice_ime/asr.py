@@ -158,6 +158,11 @@ def _cuda_libs_ready() -> bool:
     return _find("cublas64_12.dll") and _find("cudnn64_*.dll")
 
 
+def gpu_ready():
+    """CUDA 运行库是否就绪（UI 展示用；只查 DLL，不加载模型）。"""
+    return _cuda_libs_ready()
+
+
 def _is_gpu_error(error) -> bool:
     """判断异常是否与 GPU/CUDA 运行相关（决定是否触发推理时 GPU→CPU 回退）。
 
@@ -278,6 +283,14 @@ class WhisperEngine:
                     prompt = prompt[:INITIAL_PROMPT_MAX_CHARS]
                 self._initial_prompt = prompt
             return self._initial_prompt
+
+    def reload_glossary(self):
+        """词库被界面修改后重新读取：清空缓存，下一次转写重新拼 initial_prompt。"""
+        with self._load_lock:
+            self._glossary_terms = []
+            self._glossary_mappings = []
+            self._glossary_loaded = False
+            self._initial_prompt = None
 
     # ---------- 音频预处理 ----------
     @staticmethod

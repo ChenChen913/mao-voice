@@ -38,7 +38,8 @@
   },
   "ui": {
     "preview_sec": 1.5,
-    "max_chars": 300
+    "max_chars": 300,
+    "autostart": false
   },
   "inject": {
     "restore_delay_sec": 0.2,

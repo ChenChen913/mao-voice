@@ -10,6 +10,7 @@
 用法：python tests/client_smoke.py
 """
 import ctypes
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -29,6 +30,7 @@ from qt_ui.client_app import ClientApp  # noqa: E402
 from qt_ui.main_window import MainWindow  # noqa: E402
 from qt_ui.overlay import QtOverlay  # noqa: E402
 from qt_ui.root import QtRoot  # noqa: E402
+from qt_ui.wizard import FirstRunWizard  # noqa: E402
 
 OUT = BASE.parent / "docs" / "images"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -133,11 +135,22 @@ def main_run():
     QTest.qWait(150)
     save_shot(window, "client-home.png")
 
-    # 设置页：截图时把本机模型路径换成通用示例，避免把私有目录写进 README 截图
+    # 设置页：截图时把本机模型路径换成通用示例，避免把私有目录写进 README 截图。
+    # 为了让「目录有效」状态真实出现，临时创建一份占位模型目录，截图后删除。
+    fake_model = BASE / "models" / "faster-whisper-large-v3-turbo"
+    created_fake = not fake_model.exists()
+    if created_fake:
+        fake_model.mkdir(parents=True, exist_ok=True)
+        for name in ("model.bin", "config.json", "tokenizer.json", "vocabulary.json"):
+            (fake_model / name).write_bytes(b"placeholder" * 40000)
     window.show_page("设置")
     window.settings_page.model.setText("models/faster-whisper-large-v3-turbo")
     QTest.qWait(200)
     save_shot(window, "client-settings.png")
+    window.settings_page._set_section(2)
+    QTest.qWait(200)
+    save_shot(window, "client-settings-model.png")
+    window.settings_page._set_section(0)
     payloads = []
     window.settings_saved.connect(payloads.append)
     window.settings_page.level.setCurrentIndex(1)  # light
@@ -150,6 +163,13 @@ def main_run():
     window.show_page("词库")
     QTest.qWait(200)
     save_shot(window, "client-dictionary.png")
+
+    wizard = FirstRunWizard(cfg)
+    wizard.show()
+    QTest.qWait(150)
+    save_shot(wizard, "client-wizard.png")
+    wizard.close()
+
     settings_ok = bool(payloads) and payloads[0].get("refine", {}).get("level") == "light"
 
     hidden_after = not overlay.isVisible()
@@ -176,6 +196,12 @@ def main_run():
 
     main.safe_inject.inject = original_inject
     main.Recorder = original_recorder
+    if created_fake:
+        shutil.rmtree(fake_model, ignore_errors=True)
+        try:
+            fake_model.parent.rmdir()
+        except OSError:
+            pass
     overlay.hide()
     qapp.quit()
     if problems:

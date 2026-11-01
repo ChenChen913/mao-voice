@@ -81,14 +81,20 @@ flowchart LR
 
 除了托盘 + 热键的原有形态，仓库里新增了一个 PySide6 客户端外壳，视觉按 `code.html` 原型重做成深色仪表风：主窗口（首页 / 历史 / 词库 / 设置）、悬浮胶囊与托盘，直接复用现有引擎。
 
+客户端已包含**首次启动向导**（隐私说明 / 麦克风试录 / 模型选择 / 热键与 Key，可跳过），**词库可新增、编辑、删除、导入导出**，**历史支持重新注入、删除与清空**，设置页可直接**浏览或扫描本机模型并校验四件套**。
+
 ![客户端首页](docs/images/client-home.png)
 
 <details>
-<summary>更多界面：历史 / 设置 / 词库 / 录音胶囊</summary>
+<summary>更多界面：首次向导 / 历史 / 设置 / 模型设置 / 词库 / 录音胶囊</summary>
+
+![首次启动向导](docs/images/client-wizard.png)
 
 ![客户端历史](docs/images/client-history.png)
 
 ![客户端设置](docs/images/client-settings.png)
+
+![模型设置](docs/images/client-settings-model.png)
 
 ![客户端词库](docs/images/client-dictionary.png)
 
@@ -101,7 +107,7 @@ cd voice_ime
 python client_main.py     # 或双击 启动客户端.bat
 ```
 
-当前状态：主窗口、托盘、胶囊与录音管线已接通；设置页可保存并立即生效（热键会重载监听），历史页在每次注入后自动刷新；词库页与按应用模式仍是骨架。Tk 版 `main.py` 仍是稳定入口，两者共用 `config.json`，请不要同时运行。
+当前状态：主窗口、托盘、胶囊与录音管线已接通；首次向导、词库增删改与历史操作已完成；设置页可保存并立即生效（模型切换重建引擎、热键重载监听、开机自启写入当前用户启动项），诊断信息可一键导出。按应用模式、统计页、更新检查与浅色主题仍属后续计划。Tk 版 `main.py` 仍是稳定入口，两者共用 `config.json`，请不要同时运行。
 
 ## 快速开始
 

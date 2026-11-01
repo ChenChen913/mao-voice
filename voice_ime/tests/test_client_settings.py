@@ -36,9 +36,22 @@ class _Root:
         pass
 
 
+class _Reloadable:
+    def __init__(self):
+        self.reloads = 0
+
+    def reload(self):
+        self.reloads += 1
+
+    def refresh_stats(self):
+        self.reloads += 1
+
+
 class _Window:
     def __init__(self):
         self.refreshed = 0
+        self.history_page = _Reloadable()
+        self.home = _Reloadable()
 
     def set_status(self, *a):
         pass
@@ -88,3 +101,39 @@ def test_apply_settings_turns_history_off(tmp_path, monkeypatch):
     assert ok is True
     assert app.history is None
     assert app.learn is None
+
+
+def test_delete_and_clear_history(tmp_path, monkeypatch):
+    from history import HistoryStore, read_entries
+
+    app, _ = _make_client(tmp_path, monkeypatch)
+    path = tmp_path / "history.json"
+    app.history = HistoryStore(path=str(path))
+    app.history.add("原始", "结果", duration_s=1)
+    entry = app.history.items()[0]
+
+    app.delete_history(entry)
+    assert app.history.items() == []
+    assert read_entries(str(path)) == []
+    assert app.window.history_page.reloads >= 1
+    assert app.window.home.reloads >= 1
+
+    app.history.add("原始2", "结果2")
+    app.clear_history()
+    assert app.history.items() == []
+    assert read_entries(str(path)) == []
+
+
+def test_reload_dictionary_calls_engine():
+    class _Engine:
+        def __init__(self):
+            self.calls = 0
+
+        def reload_glossary(self):
+            self.calls += 1
+
+    app = client_app.ClientApp.__new__(client_app.ClientApp)
+    primary = _Engine()
+    app.asr = type("Wrapper", (), {"primary": primary})()
+    app.reload_dictionary()
+    assert primary.calls == 1

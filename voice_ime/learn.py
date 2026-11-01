@@ -185,6 +185,11 @@ class LearnedRules:
                 pass
 
 
+def clear_rules(path=DEFAULT_PATH):
+    """清空学习规则文件（界面「清空学习记录」用）。"""
+    LearnedRules(path=path).clear()
+
+
 def append_learned_block(words_block, store):
     """把学习规则块拼到词库块后面（words_block 为 "（无）" 时直接替换）。
 
