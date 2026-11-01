@@ -20,6 +20,7 @@ from history import HistoryStore
 from learn import LearnedRules, append_learned_block
 from ui import Overlay
 from settings_ui import SettingsWindow, TrayIcon
+from version import __version__
 
 MIN_DURATION = 0.5
 
@@ -512,7 +513,8 @@ def main():
     elif cycle_hotkey:
         print("[警告] 润色切换热键 {} 与录音/设置热键冲突，未启动（默认 f9 可恢复）".format(cycle_hotkey))
     auto_stop = cfg.get("recorder", {}).get("auto_stop_silence_sec", 0)
-    print("[就绪] 按一下 {} 开始录音，再按一下结束并自动输入。右键悬浮窗可退出。".format(cfg["hotkey"]))
+    print("[就绪] mao-voice v{} · 按一下 {} 开始录音，再按一下结束并自动输入。右键悬浮窗可退出。".format(
+        __version__, cfg["hotkey"]))
     if auto_stop > 0:
         print("[设置] 静音超过 {} 秒将自动结束录音".format(auto_stop))
     app.tray = TrayIcon(app)

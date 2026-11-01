@@ -15,15 +15,12 @@ voice_ime/history.json
 voice_ime/result.txt
 voice_ime/target_ready.txt
 
-# ---- agent workspaces and results ----
-voice_ime/tasks/
-voice_ime/results/
-.workbuddy/
-
 # ---- python ----
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.ruff_cache/
 
 # ---- logs and temp ----
 *.log
@@ -31,6 +28,8 @@ __pycache__/
 
 # ---- screenshots / demo artifacts ----
 *.png
+# README 演示截图需要入库（实机截图，非占位）
+!docs/images/*.png
 
 # ---- self-learning rules (v5.18, plaintext user dictation content) ----
 voice_ime/learned_rules.json

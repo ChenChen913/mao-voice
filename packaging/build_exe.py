@@ -10,6 +10,10 @@
   （config.BASE_DIR 在 frozen 下指向 exe 目录）；
 - 模型【不打进包】：体积太大且更新频繁。把 models/faster-whisper-* 放到
   exe 同目录的 models/ 下，或用源码环境的 download_model.py 下载后拷贝。
+
+分发注意：默认（GPU 完整版）会把本机 nvidia-cublas/cudnn 的 DLL 打进包内，
+对外分发前请确认遵守 NVIDIA 对应运行库的再分发条款；不需要 GPU 加速时用
+`--cpu-only`，产物不含 NVIDIA 组件。CI 的 package.yml 固定构建 CPU 版。
 """
 import argparse
 import os

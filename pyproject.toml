@@ -1,0 +1,12 @@
+# -*- coding: utf-8 -*-
+# 仅放工具配置：本项目以源码目录直接运行，不做 pip 打包。
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-exclude = ["voice_ime/models", "dist", "build"]
+
+[tool.ruff.lint]
+# 先只卡语法/未定义名这类硬错误（pyflakes F7/F82、pycodestyle E9），
+# 历史代码的风格类告警不在这里一次性摊开。
+select = ["E9", "F63", "F7", "F82"]

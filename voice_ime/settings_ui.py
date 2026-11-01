@@ -16,6 +16,7 @@ from config import BASE_DIR
 from hotkey import HOTKEY_LABELS
 from history import HistoryStore
 from learn import LearnedRules
+from version import __version__
 
 try:
     import pystray
@@ -75,7 +76,10 @@ class TrayIcon:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", lambda: self.app.exit_app()),
         )
-        self._icon = pystray.Icon("mao-voice", make_tray_image(), "AI 语音输入法", menu)
+        self._icon = pystray.Icon(
+            "mao-voice", make_tray_image(),
+            "AI 语音输入法 v{}".format(__version__), menu,
+        )
         try:
             self._icon.run_detached()
         except Exception:
@@ -110,7 +114,7 @@ class SettingsWindow:
         self.app = app
         self.cfg = app.cfg
         self.root = tk.Toplevel(parent)
-        self.root.title("AI 语音输入法 · 设置")
+        self.root.title("AI 语音输入法 · 设置 v{}".format(__version__))
         self.root.geometry("640x520")
         self.root.attributes("-topmost", True)
         self._dl_state = ""   # 下载状态（工作线程写字符串，主线程轮询读）
