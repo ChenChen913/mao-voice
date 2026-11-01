@@ -133,7 +133,7 @@ python main.py                          # 或双击 启动.bat
 |---------|------|--------|------|
 | `refine.api_key` | 否 | 空 | DeepSeek 等 OpenAI 兼容 API Key。**按量计费**；不填则跳过纠错，直接输出原始转写 |
 | `hotkey` | 否 | `alt_r` | 录音开关热键，支持 `alt_r`/`ctrl_r`/`f1`~`f12`/`caps_lock` 等 |
-| `asr.model` | 否 | `models/faster-whisper-medium` | 本地模型路径 |
+| `asr.model` | 否 | `models/faster-whisper-medium` | faster-whisper (CTranslate2) 模型目录，可指向任意本机 CT2 模型（需含 `model.bin`）；也可填 `small`/`medium` 让引擎自行下载 |
 | `asr.language` | 否 | `null` | `null` 为自动检测（中英混杂友好），`"zh"` 固定中文 |
 | `refine.level` | 否 | `conservative` | 纠错强度：`conservative`/`light`/`polish` |
 | `inject.paste_mode` | 否 | `auto` | `auto` 下终端类窗口自动走 Unicode 直注；可强制 `ctrl_v`/`unicode` |
@@ -167,7 +167,7 @@ mao-voice/
 ## 开发
 
 ```powershell
-python -m pytest voice_ime/tests -q     # 运行测试（2026-11-01 实测 133 passed）
+python -m pytest voice_ime/tests -q     # 运行测试（2026-11-01 实测 134 passed）
 python -m ruff check voice_ime          # 静态检查（CI 同款）
 python -m compileall -q voice_ime       # 语法检查
 python voice_ime/tests/e2e_live.py --no-asr   # 真机冒烟：注入 + 剪贴板恢复（不需要模型）
@@ -179,6 +179,7 @@ python packaging/build_exe.py --client  # 打包 Qt 客户端 exe（预览）
 ```
 
 - 推送到 GitHub 自动跑测试 CI（Windows + Python 3.12/3.13）；打 `v*` tag 触发打包并发布 Release
+- **版本策略**：5.x 是开发期历史编号，5.19.1 是最后一个 5.x；日常提交不再递增版本号，只在发布 Release 时更新。首个客户端正式版从 6.0.0 开始
 - 审查与修复过程：[OCR 审查报告](docs/audits/OCR审查报告.md)、[项目审核报告](docs/audits/项目审核报告.md)、[第三轮深度审核](docs/audits/深度审核报告_第三轮_2026-09-28.md)
 - 完整版本历史见[更新记录](docs/更新记录.md)
 

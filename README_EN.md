@@ -133,7 +133,7 @@ The config file is `voice_ime/config.json` (created on first run, written atomic
 |---------|----------|---------|-------------|
 | `refine.api_key` | No | empty | DeepSeek or any OpenAI-compatible API key. **Pay per use**; empty = skip correction and output raw transcription |
 | `hotkey` | No | `alt_r` | Toggle hotkey: `alt_r`/`ctrl_r`/`f1`~`f12`/`caps_lock` etc. |
-| `asr.model` | No | `models/faster-whisper-medium` | Local model path |
+| `asr.model` | No | `models/faster-whisper-medium` | faster-whisper (CTranslate2) model directory; can point to any local CT2 model containing `model.bin`, or use `small`/`medium` to let the engine download it |
 | `asr.language` | No | `null` | `null` = auto detect (good for mixed Chinese/English), `"zh"` = force Chinese |
 | `refine.level` | No | `conservative` | Correction strength: `conservative`/`light`/`polish` |
 | `inject.paste_mode` | No | `auto` | In `auto`, terminal-like windows switch to Unicode injection; can force `ctrl_v`/`unicode` |
@@ -167,7 +167,7 @@ mao-voice/
 ## Development
 
 ```powershell
-python -m pytest voice_ime/tests -q     # run tests (133 passed on 2026-11-01)
+python -m pytest voice_ime/tests -q     # run tests (134 passed on 2026-11-01)
 python -m ruff check voice_ime          # lint (same as CI)
 python -m compileall -q voice_ime       # syntax check
 python voice_ime/tests/e2e_live.py --no-asr   # live smoke: injection + clipboard restore (no model needed)
@@ -179,6 +179,7 @@ python packaging/build_exe.py --client  # build the Qt client exe (preview)
 ```
 
 - Pushing runs the test CI (Windows + Python 3.12/3.13); a `v*` tag builds and publishes a Release
+- **Versioning**: 5.x is a historical development series and 5.19.1 is the last 5.x. Day-to-day commits no longer bump the version; it changes only on release. The first client release starts at 6.0.0
 - Review history: [OCR audit](docs/audits/OCR审查报告.md), [project audit](docs/audits/项目审核报告.md), [third-round audit](docs/audits/深度审核报告_第三轮_2026-09-28.md) (Chinese)
 - Full version history: [changelog](docs/更新记录.md) (Chinese)
 
