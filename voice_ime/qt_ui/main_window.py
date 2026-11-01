@@ -895,8 +895,12 @@ class SettingsPage(QWidget):
         lay.setSpacing(0)
 
         nav = QWidget()
+        nav.setObjectName("SettingsNav")
         nav.setFixedWidth(200)
-        nav.setStyleSheet("background: %s; border-right: 1px solid %s;" % (SURFACE_LOW, OUTLINE_VARIANT))
+        nav.setStyleSheet(
+            "#SettingsNav { background: %s; border-right: 1px solid %s; }"
+            % (SURFACE_LOW, OUTLINE_VARIANT)
+        )
         nl = QVBoxLayout(nav)
         nl.setContentsMargins(10, 12, 10, 12)
         nl.setSpacing(4)
