@@ -70,6 +70,7 @@ def main_run():
     window.show()
     overlay = QtOverlay()
     root = QtRoot()
+    original_recorder = main.Recorder
     main.Recorder = FakeRecorder  # 用固定音频替身，避免依赖本机麦克风状态
     app = ClientApp(cfg, overlay, root, window)
 
@@ -117,12 +118,23 @@ def main_run():
     QTest.qWait(150)
     window.grab().save(str(OUT / "client-home.png"))
 
+    # 设置页：截图 + 验证表单能产出正确的配置载荷（不落盘，避免改本机配置）
+    window.show_page("设置")
+    QTest.qWait(200)
+    window.grab().save(str(OUT / "client-settings.png"))
+    payloads = []
+    window.settings_saved.connect(payloads.append)
+    window.settings_page.level.setCurrentIndex(1)  # light
+    window.settings_page.save_btn.click()
+    settings_ok = bool(payloads) and payloads[0].get("refine", {}).get("level") == "light"
+
     hidden_after = not overlay.isVisible()
     print("state={} injected={!r}".format(app.state, injected))
     print("focus_before={} focus_during_overlay={} unchanged={}".format(
         before, during, before == during))
     print("overlay_visible_recording={} hidden_after={}".format(
         recording_visible, hidden_after))
+    print("settings_payload={!r}".format(payloads[-1] if payloads else None))
 
     problems = []
     if app.state != "IDLE":
@@ -135,8 +147,11 @@ def main_run():
         problems.append("处理结束后胶囊未隐藏")
     if before != during:
         problems.append("胶囊显示时抢走了前台焦点")
+    if not settings_ok:
+        problems.append("设置页未产出正确的保存载荷")
 
     main.safe_inject.inject = original_inject
+    main.Recorder = original_recorder
     overlay.hide()
     qapp.quit()
     if problems:

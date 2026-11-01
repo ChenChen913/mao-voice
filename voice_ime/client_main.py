@@ -90,6 +90,17 @@ def main():
 
     listeners = _setup_hotkeys(app_logic, cfg)
 
+    def _on_settings_saved(payload):
+        ok, msg = app_logic.apply_settings(payload)
+        if ok:
+            for h in listeners:
+                h.stop()
+            listeners[:] = _setup_hotkeys(app_logic, app_logic.cfg)
+            msg = "已保存并应用，热键已重载"
+        window.settings_page.show_result(ok, msg)
+
+    window.settings_saved.connect(_on_settings_saved)
+
     def _open_window():
         window.show_page("首页")
 

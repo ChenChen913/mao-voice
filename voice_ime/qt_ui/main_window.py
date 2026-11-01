@@ -104,6 +104,11 @@ QPushButton#Record {
     font-size: 15px; font-weight: 600; padding: 18px 28px;
 }
 QPushButton#Record:hover { background: #5AA0E3; }
+QPushButton#Primary {
+    background: %(accent)s; color: white; border: none; border-radius: 8px;
+    font-size: 13px; font-weight: 600; padding: 8px 18px;
+}
+QPushButton#Primary:hover { background: #5AA0E3; }
 QPushButton#Ghost {
     background: #1B1E23; color: %(text)s; border: 1px solid %(border)s;
     border-radius: 8px; padding: 6px 12px;
@@ -273,6 +278,18 @@ class HomePage(QWidget):
             item = QListWidgetItem("{}   {}".format(x.get("ts", "")[11:16], preview))
             self.recent_list.addItem(item)
 
+    def refresh_stats(self):
+        hist = load_history()
+        words = sum(len(x.get("final", "")) for x in hist)
+        self.stat_words.setText("{} 字".format(words))
+        self.stat_time.setText("{} 分钟".format(max(0, words // 40)))
+        self._refresh_recent(hist)
+
+    def update_config(self, cfg):
+        self._model_ok = model_ready(cfg)
+        self.stat_model.setText(Path(cfg.get("asr", {}).get("model", "medium")).name)
+        self.set_status("IDLE")
+
     def set_status(self, state, text=""):
         if state == "IDLE" and not self._model_ok:
             self.dot.setStyleSheet("color: %s; font-size: 14px;" % "#F39C12")
@@ -298,7 +315,6 @@ class HomePage(QWidget):
 class HistoryPage(QWidget):
     def __init__(self):
         super().__init__()
-        hist = load_history()
         lay = QVBoxLayout(self)
         lay.setContentsMargins(28, 24, 28, 24)
         lay.setSpacing(14)
@@ -314,18 +330,27 @@ class HistoryPage(QWidget):
         body.addWidget(self.detail, 6)
         lay.addLayout(body, 1)
 
-        self._items = hist
-        if not hist:
+        self._items = []
+        self.list.currentRowChanged.connect(self._show_detail)
+        self.reload()
+
+    def reload(self):
+        self._items = load_history()
+        self.list.blockSignals(True)
+        self.list.clear()
+        if not self._items:
             item = QListWidgetItem("暂无历史记录")
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.list.addItem(item)
             self.detail.setPlainText("开启「输入历史」后，每次成功注入都会记录在这里。")
         else:
-            for i, x in enumerate(reversed(hist)):
+            for x in reversed(self._items):
                 text = x.get("final", "").replace("\n", " ")
                 self.list.addItem("{}   {}".format(x.get("ts", "")[5:16], text[:40]))
-            self.list.currentRowChanged.connect(self._show_detail)
             self.list.setCurrentRow(0)
+        self.list.blockSignals(False)
+        if self._items:
+            self._show_detail(0)
 
     def _show_detail(self, row):
         if row < 0 or row >= len(self._items):
@@ -371,6 +396,14 @@ class DictionaryPage(QWidget):
 
 
 class SettingsPage(QWidget):
+    saved = Signal(dict)
+
+    PASTE_MODES = [
+        ("auto", "自动（终端类窗口走 Unicode 直注）"),
+        ("ctrl_v", "始终剪贴板 + Ctrl+V"),
+        ("unicode", "始终 Unicode 直注"),
+    ]
+
     def __init__(self):
         super().__init__()
         cfg = load_cfg()
@@ -379,7 +412,7 @@ class SettingsPage(QWidget):
         lay.setSpacing(14)
         title = QLabel("设置")
         title.setObjectName("H1")
-        banner = QLabel("原型阶段：以下内容读取自配置，保存能力在下一阶段接入。")
+        banner = QLabel("保存后立即生效；录音热键会重载监听。API Key 只写入本机 config.json。")
         banner.setStyleSheet(
             "color: %s; background: #1B1E23; border: 1px solid %s;"
             "border-radius: 8px; padding: 8px 12px;" % (MUTED, BORDER)
@@ -392,37 +425,100 @@ class SettingsPage(QWidget):
         form = QFormLayout(card)
         form.setContentsMargins(20, 20, 20, 20)
         form.setSpacing(14)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        hotkey = QComboBox()
-        hotkey.addItems(HOTKEYS)
-        hotkey.setCurrentText(cfg.get("hotkey", "alt_r"))
-        form.addRow("录音热键", hotkey)
+        self.hotkey = QComboBox()
+        self.hotkey.addItems(HOTKEYS)
+        self.hotkey.setCurrentText(cfg.get("hotkey", "alt_r"))
+        form.addRow("录音热键", self.hotkey)
 
-        model = QLineEdit(cfg.get("asr", {}).get("model", ""))
-        form.addRow("识别模型", model)
+        self.model = QLineEdit(cfg.get("asr", {}).get("model", ""))
+        self.model.setPlaceholderText("models/faster-whisper-medium 或 small")
+        form.addRow("识别模型", self.model)
 
-        level = QComboBox()
+        self.level = QComboBox()
         for key, label in LEVELS:
-            level.addItem(label, key)
+            self.level.addItem(label, key)
         current = cfg.get("refine", {}).get("level", "conservative")
-        level.setCurrentIndex(max(0, [k for k, _ in LEVELS].index(current)))
-        form.addRow("纠错强度", level)
+        self.level.setCurrentIndex(max(0, [k for k, _ in LEVELS].index(current)))
+        form.addRow("纠错强度", self.level)
 
-        form.addRow("纠错服务", QLineEdit(cfg.get("refine", {}).get("base_url", "")))
+        self.base_url = QLineEdit(cfg.get("refine", {}).get("base_url", ""))
+        self.base_url.setPlaceholderText("https://api.deepseek.com/v1")
+        form.addRow("纠错服务", self.base_url)
 
-        hist_cb = QCheckBox("记录输入历史（明文落盘）")
-        hist_cb.setChecked(bool(cfg.get("history", {}).get("enabled", False)))
-        form.addRow("隐私", hist_cb)
+        self.api_key = QLineEdit(cfg.get("refine", {}).get("api_key", ""))
+        self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key.setPlaceholderText("留空则使用 DEEPSEEK_API_KEY 环境变量")
+        form.addRow("API Key", self.api_key)
 
-        learn_cb = QCheckBox("自学习纠错规则（明文落盘）")
-        learn_cb.setChecked(bool(cfg.get("learn", {}).get("enabled", False)))
-        form.addRow("", learn_cb)
+        self.paste_mode = QComboBox()
+        for key, label in self.PASTE_MODES:
+            self.paste_mode.addItem(label, key)
+        current_mode = cfg.get("inject", {}).get("paste_mode", "auto")
+        mode_keys = [k for k, _ in self.PASTE_MODES]
+        self.paste_mode.setCurrentIndex(
+            mode_keys.index(current_mode) if current_mode in mode_keys else 0
+        )
+        form.addRow("注入方式", self.paste_mode)
+
+        self.hist_cb = QCheckBox("记录输入历史（明文落盘）")
+        self.hist_cb.setChecked(bool(cfg.get("history", {}).get("enabled", False)))
+        form.addRow("历史", self.hist_cb)
+
+        self.learn_cb = QCheckBox("自学习纠错规则（明文落盘）")
+        self.learn_cb.setChecked(bool(cfg.get("learn", {}).get("enabled", False)))
+        form.addRow("学习", self.learn_cb)
 
         lay.addWidget(card)
+
+        footer = QHBoxLayout()
+        self.save_btn = QPushButton("保存并应用")
+        self.save_btn.setObjectName("Primary")
+        self.save_btn.setFixedHeight(38)
+        self.save_btn.clicked.connect(self._save)
+        self.status = QLabel("")
+        self.status.setObjectName("Muted")
+        footer.addWidget(self.save_btn)
+        footer.addSpacing(12)
+        footer.addWidget(self.status)
+        footer.addStretch(1)
+        lay.addLayout(footer)
         lay.addStretch(1)
+
+    def _save(self):
+        model = self.model.text().strip()
+        if not model:
+            self._warn("识别模型不能为空")
+            return
+        if self.hotkey.currentText() not in HOTKEYS:
+            self._warn("热键不在支持列表内")
+            return
+        payload = {
+            "hotkey": self.hotkey.currentText(),
+            "asr": {"model": model},
+            "refine": {
+                "level": self.level.currentData(),
+                "base_url": self.base_url.text().strip(),
+                "api_key": self.api_key.text().strip(),
+            },
+            "inject": {"paste_mode": self.paste_mode.currentData()},
+            "history": {"enabled": self.hist_cb.isChecked()},
+            "learn": {"enabled": self.learn_cb.isChecked()},
+        }
+        self.saved.emit(payload)
+
+    def show_result(self, ok, message):
+        self.status.setStyleSheet("color: %s;" % ("#27AE60" if ok else "#E74C3C"))
+        self.status.setText(message)
+
+    def _warn(self, message):
+        self.show_result(False, message)
 
 
 class MainWindow(QWidget):
+    settings_saved = Signal(dict)
+
     def __init__(self):
         super().__init__(None, Qt.WindowType.FramelessWindowHint)
         self.setObjectName("Root")
@@ -442,11 +538,14 @@ class MainWindow(QWidget):
 
         self.stack = QStackedWidget()
         self.home = HomePage()
+        self.history_page = HistoryPage()
+        self.settings_page = SettingsPage()
+        self.settings_page.saved.connect(self.settings_saved)
         self.pages = {
             "首页": self.home,
-            "历史": HistoryPage(),
+            "历史": self.history_page,
             "词库": DictionaryPage(),
-            "设置": SettingsPage(),
+            "设置": self.settings_page,
         }
         for page in self.pages.values():
             self.stack.addWidget(page)
@@ -488,10 +587,22 @@ class MainWindow(QWidget):
 
     def show_page(self, name):
         if name in self.pages:
+            if name == "历史":
+                self.history_page.reload()
+            elif name == "首页":
+                self.home.refresh_stats()
             self._set_page(name)
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def refresh_data(self, cfg=None):
+        """引擎状态变化后刷新首页统计与历史列表。"""
+        if cfg is not None:
+            self.home.update_config(cfg)
+        else:
+            self.home.refresh_stats()
+        self.history_page.reload()
 
     def closeEvent(self, event):
         event.ignore()

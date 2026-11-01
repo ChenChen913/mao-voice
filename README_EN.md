@@ -77,14 +77,16 @@ Up front: this is neither the most feature-complete nor the most accurate option
 
 Besides the tray-and-hotkey app, the repo now includes a PySide6 client shell: a main window (Home / History / Dictionary / Settings), the floating capsule and a tray icon, all reusing the existing engine.
 
-![Client main window](docs/images/client-home.png)
+| Home | Settings |
+| --- | --- |
+| ![Client home](docs/images/client-home.png) | ![Client settings](docs/images/client-settings.png) |
 
 ```powershell
 cd voice_ime
 python client_main.py     # or double-click 启动客户端.bat
 ```
 
-Current state: the main window, tray, capsule and recording pipeline are wired up; the Settings and History pages are still read-only skeletons, with saving and live refresh coming next. The Tk `main.py` remains the stable entry point. Both share `config.json`, so do not run them at the same time.
+Current state: the main window, tray, capsule and recording pipeline are wired up; Settings can be saved and applied immediately (hotkeys are reloaded), and History refreshes after every injection. Dictionary and per-app modes are still skeletons. The Tk `main.py` remains the stable entry point. Both share `config.json`, so do not run them at the same time.
 
 ## Quick Start
 
@@ -165,7 +167,7 @@ mao-voice/
 ## Development
 
 ```powershell
-python -m pytest voice_ime/tests -q     # run tests (128 passed on 2026-11-01)
+python -m pytest voice_ime/tests -q     # run tests (130 passed on 2026-11-01)
 python -m ruff check voice_ime          # lint (same as CI)
 python -m compileall -q voice_ime       # syntax check
 python voice_ime/tests/e2e_live.py --no-asr   # live smoke: injection + clipboard restore (no model needed)
@@ -207,7 +209,7 @@ More troubleshooting: [部署文档 FAQ](docs/部署文档.md) (Chinese).
 - Input history and learned rules are plaintext on disk (both off by default, warned in settings)
 - Entire audio stays in memory: very long recordings (300 s default cap) grow linearly
 - UI and messages are Chinese-only; the packaged build is only smoke-tested for "process survives" in CI, GPU loading is not verified there
-- Client preview: Settings and History are read-only skeletons with no live refresh; the Tk app and Qt client share the same config, so do not run both
+- Client preview: Dictionary and per-app modes are still read-only skeletons; the Tk app and Qt client share the same config, so do not run both
 
 ## Contributing
 

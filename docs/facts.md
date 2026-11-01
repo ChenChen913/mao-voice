@@ -10,7 +10,7 @@
 3. **主语言 / 运行时 / 最低版本**：Python；doctor.py 要求 >= 3.10，CI 在 3.12 / 3.13 测试（`.github/workflows/ci.yml` matrix）
 4. **安装命令**：`pip install -r voice_ime/requirements.txt`（requirements.txt 存在，2026-11-01 实跑 doctor 通过）
 5. **运行命令**：`python main.py`（Tk 版）或双击 `voice_ime/启动.bat`；Qt 客户端预览：`python client_main.py` 或 `启动客户端.bat`
-6. **测试命令**：`python -m pytest voice_ime/tests -q` → 实跑结果 **128 passed in 1.72s**（2026-11-01，Python 3.13.3）
+6. **测试命令**：`python -m pytest voice_ime/tests -q` → 实跑结果 **130 passed in 2.02s**（2026-11-01，Python 3.13.3）
 7. **静态检查**：`python -m ruff check voice_ime`（CI 同款，2026-11-01 实跑通过）
 8. **构建命令**：`python packaging/build_exe.py`（Tk 版，可选 `--cpu-only`）；`python packaging/build_exe.py --client` 打包 Qt 客户端（预览）
 9. **环境自检**：`python doctor.py`（7 项；源码首次运行前未建 config.json 时会有 2 项提示，属预期）
@@ -19,7 +19,7 @@
     - `voice_ime/` — 运行时代码，**24 个 .py 模块，5264 行**（2026-11-01 统计，含 `qt_ui/`）
     - `voice_ime/qt_ui/` — Qt 客户端外壳：主窗口、胶囊、托盘、引擎适配
     - `voice_ime/client_main.py` — Qt 客户端入口（预览）
-    - `voice_ime/tests/` — 22 个测试相关 .py（128 项用例 + 手动脚本）
+    - `voice_ime/tests/` — 23 个测试相关 .py（130 项用例 + 手动脚本）
     - `packaging/` — PyInstaller 打包脚本与图标
     - `docs/` — 部署文档、PRD/SPEC/调研、更新记录、`docs/audits/` 审核报告、`docs/images/` 实机截图、`docs/plans/`
     - `.github/workflows/` — `ci.yml`（测试）、`package.yml`（tag 触发打包发布，CPU 版）
@@ -29,7 +29,7 @@
 15. **许可证**：Apache-2.0（LICENSE 存在）
 16. **文档清单**：README.md / README_EN.md；docs/ 下：部署文档、PRD、SPEC、调研与产品设计、客户端架构与界面调研、更新记录、`audits/` 四份审核报告 + OCR 审查报告、facts.md
 17. **演示素材**：`docs/images/overlay-*.png`（Tk 胶囊）、`client-home.png`、`client-overlay-recording.png`（Qt 客户端，2026-11-01 真实渲染截取）
-18. **Qt 客户端状态**：主窗口/托盘/胶囊/录音管线已接通；设置页与历史页为只读骨架；最小 Qt 原型包 117.9MB（2026-11-01 PyInstaller 实测）
+18. **Qt 客户端状态**：主窗口/托盘/胶囊/录音管线已接通；设置页可保存并立即生效（模型切换重建引擎、热键重载监听）；历史页注入后自动刷新；词库页与按应用模式仍是骨架；最小 Qt 原型包 117.9MB，完整客户端包 733.7MB（含引擎依赖，待裁剪）
 
 ## B. 需人工确认的事实（已核对）
 

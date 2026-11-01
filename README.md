@@ -77,14 +77,16 @@ flowchart LR
 
 除了托盘 + 热键的原有形态，仓库里新增了一个 PySide6 客户端外壳：主窗口（首页 / 历史 / 词库 / 设置）、悬浮胶囊与托盘，直接复用现有引擎。
 
-![客户端主窗口](docs/images/client-home.png)
+| 首页 | 设置 |
+| --- | --- |
+| ![客户端首页](docs/images/client-home.png) | ![客户端设置](docs/images/client-settings.png) |
 
 ```powershell
 cd voice_ime
 python client_main.py     # 或双击 启动客户端.bat
 ```
 
-当前状态：主窗口、托盘、胶囊与录音管线已接通；设置页、历史页仍是只读骨架，保存与自动刷新在下一阶段接入。Tk 版 `main.py` 仍是稳定入口，两者共用 `config.json`，请不要同时运行。
+当前状态：主窗口、托盘、胶囊与录音管线已接通；设置页可保存并立即生效（热键会重载监听），历史页在每次注入后自动刷新；词库页与按应用模式仍是骨架。Tk 版 `main.py` 仍是稳定入口，两者共用 `config.json`，请不要同时运行。
 
 ## 快速开始
 
@@ -165,7 +167,7 @@ mao-voice/
 ## 开发
 
 ```powershell
-python -m pytest voice_ime/tests -q     # 运行测试（2026-11-01 实测 128 passed）
+python -m pytest voice_ime/tests -q     # 运行测试（2026-11-01 实测 130 passed）
 python -m ruff check voice_ime          # 静态检查（CI 同款）
 python -m compileall -q voice_ime       # 语法检查
 python voice_ime/tests/e2e_live.py --no-asr   # 真机冒烟：注入 + 剪贴板恢复（不需要模型）
@@ -207,7 +209,7 @@ A：安装 Python 时未勾选 "Add Python to PATH"，重装并勾选即可。
 - 输入历史与学习规则为明文落盘（均默认关闭，设置页有风险提示）
 - 大块音频全程驻留内存：超长单次录音（默认上限 300 秒）内存占用线性增长
 - 界面与提示仅有中文；打包版只在 CI 做过「进程存活」冒烟，GPU 加载未在 CI 验证
-- 客户端预览版：设置与历史页仍是只读骨架，不会自动刷新；Tk 版与 Qt 客户端共用配置，请勿同时运行
+- 客户端预览版：词库页与按应用模式仍是只读骨架；Tk 版与 Qt 客户端共用配置，请勿同时运行
 
 ## 如何贡献
 
