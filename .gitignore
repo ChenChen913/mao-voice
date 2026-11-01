@@ -28,8 +28,10 @@ __pycache__/
 
 # ---- screenshots / demo artifacts ----
 *.png
-# README 演示截图需要入库（实机截图，非占位）
+# README 演示截图与应用 logo 需要入库（实机截图/品牌资产，非占位）
 !docs/images/*.png
+!voice_ime/assets/*.png
+!packaging/*.png
 
 # ---- self-learning rules (v5.18, plaintext user dictation content) ----
 voice_ime/learned_rules.json

@@ -88,6 +88,7 @@ def main():
     root = QtRoot()
     app_logic = ClientApp(cfg, overlay, root, window)
     window.home.record_clicked.connect(app_logic.on_toggle)
+    window.quit_requested.connect(app_logic.exit_app)
 
     if hasattr(app_logic.asr, "warmup"):
         threading.Thread(target=app_logic.asr.warmup, daemon=True).start()

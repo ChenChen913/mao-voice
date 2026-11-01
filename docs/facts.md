@@ -16,7 +16,7 @@
 9. **环境自检**：`python doctor.py`（7 项；源码首次运行前未建 config.json 时会有 2 项提示，属预期）
 10. **真机端到端冒烟**：`python voice_ime/tests/e2e_live.py --no-asr` → 2026-11-01 实跑 **PASS**；`python voice_ime/tests/client_smoke.py` → 2026-11-01 实跑 **PASS**（Qt 客户端 + 假录音/假注入）
 11. **目录结构**：
-    - `voice_ime/` — 运行时代码，**24 个 .py 模块，5264 行**（2026-11-01 统计，含 `qt_ui/`）
+    - `voice_ime/` — 运行时代码，**24 个 .py 模块，6239 行**（2026-11-01 统计，含 `qt_ui/`）
     - `voice_ime/qt_ui/` — Qt 客户端外壳：主窗口、胶囊、托盘、引擎适配
     - `voice_ime/client_main.py` — Qt 客户端入口（预览）
     - `voice_ime/tests/` — 23 个测试相关 .py（134 项用例 + 手动脚本）
@@ -28,7 +28,7 @@
 14. **模型实测大小**（2026-09-28 记录，未变更）：medium = 1.5G，small = 464M
 15. **许可证**：Apache-2.0（LICENSE 存在）
 16. **文档清单**：README.md / README_EN.md；docs/ 下：部署文档、PRD、SPEC、调研与产品设计、客户端架构与界面调研、更新记录、`audits/` 四份审核报告 + OCR 审查报告、facts.md
-17. **演示素材**：`docs/images/overlay-*.png`（Tk 胶囊）、`client-home.png`、`client-overlay-recording.png`（Qt 客户端，2026-11-01 真实渲染截取）
+17. **演示素材**：`docs/images/overlay-*.png`（Tk 胶囊）、`client-home.png`、`client-history.png`、`client-settings.png`、`client-dictionary.png`、`client-overlay-recording.png`（Qt 客户端，2026-11-01 真实渲染截取）；`logo-256.png` 为项目 logo
 18. **Qt 客户端状态**：主窗口/托盘/胶囊/录音管线已接通；设置页可保存并立即生效（模型切换重建引擎、热键重载监听）；历史页注入后自动刷新；词库页与按应用模式仍是骨架；最小 Qt 原型包 117.9MB，完整客户端包 733.7MB（含引擎依赖，待裁剪）
 19. **模型格式**：仅支持 faster-whisper/CTranslate2 目录（`model.bin` + `config.json` + `tokenizer.json` + `vocabulary.json`）；本机已有 large-v3 与 large-v3-turbo 两个 CT2 目录可直接使用，turbo 完整链路实测通过；详见 `docs/语音模型方案.md`
 

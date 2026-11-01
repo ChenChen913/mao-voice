@@ -82,6 +82,8 @@ def main():
         "--paths", SRC,
         # 托盘：pystray 在 Windows 上动态导入平台后端（Tk 版仍在使用）
         "--hidden-import", "pystray._win32",
+        # 应用 logo（托盘/窗口图标），源码运行与打包版统一从 assets/ 读取
+        "--add-data", "{}{}{}".format(os.path.join(SRC, "assets"), os.pathsep, "assets"),
         # faster-whisper 自带 silero VAD onnx 资产；sounddevice 携带 PortAudio DLL
         "--collect-data", "faster_whisper",
         "--collect-data", "sounddevice",

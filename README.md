@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo-256.png" width="72" alt="mao-voice logo">
+</p>
+
 <h1 align="center">mao-voice · AI 语音输入法</h1>
 
 <p align="center">
@@ -75,11 +79,13 @@ flowchart LR
 
 ## 客户端预览（开发中）
 
-除了托盘 + 热键的原有形态，仓库里新增了一个 PySide6 客户端外壳：主窗口（首页 / 历史 / 词库 / 设置）、悬浮胶囊与托盘，直接复用现有引擎。
+除了托盘 + 热键的原有形态，仓库里新增了一个 PySide6 客户端外壳，视觉按 `code.html` 原型重做成深色仪表风：主窗口（首页 / 历史 / 词库 / 设置）、悬浮胶囊与托盘，直接复用现有引擎。
 
-| 首页 | 设置 |
+| 首页 | 历史 |
 | --- | --- |
-| ![客户端首页](docs/images/client-home.png) | ![客户端设置](docs/images/client-settings.png) |
+| ![客户端首页](docs/images/client-home.png) | ![客户端历史](docs/images/client-history.png) |
+| **设置** | **词库** |
+| ![客户端设置](docs/images/client-settings.png) | ![客户端词库](docs/images/client-dictionary.png) |
 
 ```powershell
 cd voice_ime
@@ -149,7 +155,7 @@ python main.py                          # 或双击 启动.bat
 
 ```text
 mao-voice/
-├── voice_ime/            # 运行时代码：24 个 Python 模块，约 5300 行
+├── voice_ime/            # 运行时代码：24 个 Python 模块，约 6200 行
 │   ├── main.py           # Tk 版入口：录音状态机 + 管线编排
 │   ├── client_main.py    # Qt 客户端入口（预览）
 │   ├── qt_ui/            # 主窗口 / 悬浮胶囊 / 托盘 / 引擎适配

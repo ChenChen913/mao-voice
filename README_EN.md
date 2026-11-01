@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo-256.png" width="72" alt="mao-voice logo">
+</p>
+
 <h1 align="center">mao-voice · AI Voice Input</h1>
 
 <p align="center">
@@ -75,11 +79,13 @@ Up front: this is neither the most feature-complete nor the most accurate option
 
 ## Client preview (work in progress)
 
-Besides the tray-and-hotkey app, the repo now includes a PySide6 client shell: a main window (Home / History / Dictionary / Settings), the floating capsule and a tray icon, all reusing the existing engine.
+Besides the tray-and-hotkey app, the repo now includes a PySide6 client shell restyled after the `code.html` prototype into a dark instrument look: a main window (Home / History / Dictionary / Settings), the floating capsule and a tray icon, all reusing the existing engine.
 
-| Home | Settings |
+| Home | History |
 | --- | --- |
-| ![Client home](docs/images/client-home.png) | ![Client settings](docs/images/client-settings.png) |
+| ![Client home](docs/images/client-home.png) | ![Client history](docs/images/client-history.png) |
+| **Settings** | **Dictionary** |
+| ![Client settings](docs/images/client-settings.png) | ![Client dictionary](docs/images/client-dictionary.png) |
 
 ```powershell
 cd voice_ime
@@ -149,7 +155,7 @@ Full configuration reference: [部署文档 §5.4](docs/部署文档.md) (Chines
 
 ```text
 mao-voice/
-├── voice_ime/            # Runtime code: 24 Python modules, ~5,300 lines
+├── voice_ime/            # Runtime code: 24 Python modules, ~6,200 lines
 │   ├── main.py           # Tk entry: recording state machine + pipeline
 │   ├── client_main.py    # Qt client entry (preview)
 │   ├── qt_ui/            # Main window / capsule / tray / engine adapter

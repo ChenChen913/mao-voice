@@ -33,7 +33,7 @@ class ClientApp(main.App):
             try:
                 self.window.set_status(state)
                 if state == "IDLE":
-                    self.window.refresh_data(self.cfg)
+                    self.window.refresh_data()
             except Exception:
                 logging.exception("客户端界面刷新失败")
 

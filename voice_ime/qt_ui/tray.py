@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Qt 托盘原型：状态文本 + 开始/打开/退出菜单。"""
+"""Qt 托盘：状态文本 + 开始/打开/退出菜单。"""
+from pathlib import Path
+
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
-from .theme import ACCENT
+from .theme import ACCENT, asset_path
 from version import __version__
 
 STATUS_LABELS = {
@@ -15,7 +17,15 @@ STATUS_LABELS = {
 
 
 def make_icon(size=64):
-    """深色圆底 + 蓝色声波竖条，与 README 里的托盘图标一致。"""
+    """优先使用项目 logo；缺失时回退到旧版绘制的声波图标。"""
+    path = asset_path("logo.png")
+    if Path(path).exists():
+        pix = QPixmap(path)
+        if not pix.isNull():
+            return QIcon(pix.scaled(
+                size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
     pix = QPixmap(size, size)
     pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix)

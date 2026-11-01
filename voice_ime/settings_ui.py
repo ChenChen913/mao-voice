@@ -8,6 +8,7 @@
 """
 import logging
 import os
+import sys
 import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -28,6 +29,8 @@ except Exception:  # 依赖缺失时托盘功能降级（设置窗口仍可用�
 
 # 统一使用 config.BASE_DIR：源码运行 = voice_ime/；打包后 = exe 所在目录
 WORDS_PATH = os.path.join(BASE_DIR, "词库.txt")
+# 打包后 assets 随 _MEIPASS 落在 _internal/assets，源码运行取 voice_ime/assets
+ASSET_DIR = os.path.join(getattr(sys, "_MEIPASS", BASE_DIR), "assets")
 
 HOTKEY_CHOICES = ["alt_r", "alt_l", "ctrl_r", "ctrl_l", "shift_r", "shift_l",
                   "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9",
@@ -45,7 +48,14 @@ def pick_download_model(model_text):
 
 
 def make_tray_image():
-    """生成 64x64 托盘图标（深色圆底 + 蓝色声波竖条）。"""
+    """优先使用项目 logo；缺失或 Pillow 不可用时回退到旧版绘制图标。"""
+    if Image is not None:
+        logo = os.path.join(ASSET_DIR, "logo.png")
+        try:
+            img = Image.open(logo).convert("RGBA")
+            return img.resize((64, 64), Image.LANCZOS)
+        except Exception:
+            pass
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.ellipse((2, 2, 62, 62), fill=(30, 30, 30, 255))

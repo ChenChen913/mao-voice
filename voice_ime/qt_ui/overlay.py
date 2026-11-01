@@ -15,6 +15,8 @@ from PySide6.QtWidgets import QWidget
 from .theme import (
     BG_DARK,
     FONT_FAMILY,
+    OUTLINE_VARIANT,
+    RADIUS_PILL,
     STATE_CONFIG,
     WAVE_BAR_COUNT,
     WAVE_BAR_GAP,
@@ -127,8 +129,10 @@ class QtOverlay(QWidget):
         rect = QRectF(0, 0, self.width(), self.height())
 
         path = QPainterPath()
-        path.addRoundedRect(rect, 16, 16)
+        path.addRoundedRect(rect, RADIUS_PILL, RADIUS_PILL)
         painter.fillPath(path, QColor(BG_DARK))
+        painter.setPen(QColor(OUTLINE_VARIANT))
+        painter.drawPath(path)
 
         cfg = STATE_CONFIG.get(self._state, STATE_CONFIG["ERROR"])
         if self._state == "RECORDING":

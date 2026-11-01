@@ -118,14 +118,23 @@ def main_run():
     QTest.qWait(150)
     window.grab().save(str(OUT / "client-home.png"))
 
-    # 设置页：截图 + 验证表单能产出正确的配置载荷（不落盘，避免改本机配置）
+    # 设置页：截图时把本机模型路径换成通用示例，避免把私有目录写进 README 截图
     window.show_page("设置")
+    window.settings_page.model.setText("models/faster-whisper-large-v3-turbo")
     QTest.qWait(200)
     window.grab().save(str(OUT / "client-settings.png"))
     payloads = []
     window.settings_saved.connect(payloads.append)
     window.settings_page.level.setCurrentIndex(1)  # light
     window.settings_page.save_btn.click()
+
+    # 历史 / 词库页截图，便于检查空状态与表格布局
+    window.show_page("历史")
+    QTest.qWait(200)
+    window.grab().save(str(OUT / "client-history.png"))
+    window.show_page("词库")
+    QTest.qWait(200)
+    window.grab().save(str(OUT / "client-dictionary.png"))
     settings_ok = bool(payloads) and payloads[0].get("refine", {}).get("level") == "light"
 
     hidden_after = not overlay.isVisible()
