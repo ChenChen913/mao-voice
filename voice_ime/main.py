@@ -13,7 +13,7 @@ import os
 from config import build_words_block, clamp_number, ensure_defaults, load_config, resolve_keys, save_config
 from hotkey import HOTKEY_LABELS, HotkeyListener, parse_key
 from recorder import Recorder
-from asr import FallbackASR, WhisperEngine
+from asr import FallbackASR, WhisperEngine, missing_local_model
 from refiner import Refiner
 import safe_inject
 from history import HistoryStore
@@ -126,6 +126,12 @@ class App:
         _finish_recording 的 guard 完成（热键与静音自动停止共用同一保护），
         否则 _finish_recording 的 `state != "RECORDING"` 检查会把热键路径挡掉。
         """
+        # 模型没下载就别让用户白说一段：直接提示去下载，而不是等到转写时报一长串错误
+        if self.state == "IDLE" and missing_local_model(
+            self.cfg.get("asr", {}).get("model", "")
+        ):
+            self._show_toast("模型未下载：请先运行 python download_model.py")
+            return
         with self._lock:
             if self.state == "IDLE":
                 # v5.11：在同一个临界区内创建 recorder 并置 RECORDING，
@@ -467,6 +473,9 @@ class App:
 def main():
     ensure_defaults()
     cfg = load_config()
+    model = cfg.get("asr", {}).get("model", "")
+    if missing_local_model(model):
+        print("[警告] 模型未下载：{} 不存在，请先运行 python download_model.py".format(model))
     # v5.16（C6）：环境变量同样视为已配置，避免误导提示
     if not cfg["refine"].get("api_key") and not os.environ.get("DEEPSEEK_API_KEY"):
         print("[提示] 尚未配置 DeepSeek API Key：请编辑 voice_ime/config.json 的 refine.api_key")

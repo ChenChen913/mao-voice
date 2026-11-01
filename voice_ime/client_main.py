@@ -11,6 +11,7 @@ import threading
 from PySide6.QtCore import QSharedMemory
 from PySide6.QtWidgets import QApplication
 
+from asr import missing_local_model
 from config import clamp_number, ensure_defaults, load_config
 from hotkey import HotkeyListener, parse_key
 from qt_ui.client_app import ClientApp
@@ -64,6 +65,9 @@ def _setup_hotkeys(app_logic, cfg):
 def main():
     ensure_defaults()
     cfg = load_config()
+    model = cfg.get("asr", {}).get("model", "")
+    if missing_local_model(model):
+        print("[警告] 模型未下载：{} 不存在，请先运行 python download_model.py".format(model))
 
     guard = QSharedMemory("mao-voice-client-single-instance")
     if not guard.create(1):

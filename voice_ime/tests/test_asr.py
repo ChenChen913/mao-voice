@@ -3,8 +3,25 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
-from asr import FallbackASR, WhisperEngine
+from asr import FallbackASR, WhisperEngine, looks_like_local_path, missing_local_model
+
+
+def test_missing_local_model_helpers(tmp_path):
+    """本地路径不存在才算缺失；small/medium 这类模型名交给 faster-whisper 下载。"""
+    assert looks_like_local_path(str(tmp_path / "model"))
+    assert looks_like_local_path("models/faster-whisper-small")
+    assert not looks_like_local_path("small")
+    assert missing_local_model(str(tmp_path / "missing"))
+    assert not missing_local_model("small")
+
+
+def test_load_missing_path_raises_friendly_message(tmp_path):
+    """模型目录不存在时提前抛可读错误，而不是把路径当模型名报一长串。"""
+    engine = WhisperEngine(model=str(tmp_path / "missing"))
+    with pytest.raises(RuntimeError, match="模型未下载"):
+        engine._load()
 
 
 

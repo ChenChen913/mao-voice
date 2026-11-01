@@ -10,7 +10,7 @@
 3. **主语言 / 运行时 / 最低版本**：Python；doctor.py 要求 >= 3.10，CI 在 3.12 / 3.13 测试（`.github/workflows/ci.yml` matrix）
 4. **安装命令**：`pip install -r voice_ime/requirements.txt`（requirements.txt 存在，2026-11-01 实跑 doctor 通过）
 5. **运行命令**：`python main.py`（Tk 版）或双击 `voice_ime/启动.bat`；Qt 客户端预览：`python client_main.py` 或 `启动客户端.bat`
-6. **测试命令**：`python -m pytest voice_ime/tests -q` → 实跑结果 **130 passed in 2.02s**（2026-11-01，Python 3.13.3）
+6. **测试命令**：`python -m pytest voice_ime/tests -q` → 实跑结果 **133 passed in 1.89s**（2026-11-01，Python 3.13.3）
 7. **静态检查**：`python -m ruff check voice_ime`（CI 同款，2026-11-01 实跑通过）
 8. **构建命令**：`python packaging/build_exe.py`（Tk 版，可选 `--cpu-only`）；`python packaging/build_exe.py --client` 打包 Qt 客户端（预览）
 9. **环境自检**：`python doctor.py`（7 项；源码首次运行前未建 config.json 时会有 2 项提示，属预期）
@@ -19,7 +19,7 @@
     - `voice_ime/` — 运行时代码，**24 个 .py 模块，5264 行**（2026-11-01 统计，含 `qt_ui/`）
     - `voice_ime/qt_ui/` — Qt 客户端外壳：主窗口、胶囊、托盘、引擎适配
     - `voice_ime/client_main.py` — Qt 客户端入口（预览）
-    - `voice_ime/tests/` — 23 个测试相关 .py（130 项用例 + 手动脚本）
+    - `voice_ime/tests/` — 23 个测试相关 .py（133 项用例 + 手动脚本）
     - `packaging/` — PyInstaller 打包脚本与图标
     - `docs/` — 部署文档、PRD/SPEC/调研、更新记录、`docs/audits/` 审核报告、`docs/images/` 实机截图、`docs/plans/`
     - `.github/workflows/` — `ci.yml`（测试）、`package.yml`（tag 触发打包发布，CPU 版）

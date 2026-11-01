@@ -68,6 +68,21 @@ def _make_app(tmp_path):
     return main.App(cfg, FakeOverlay(), FakeRoot())
 
 
+def test_toggle_blocked_when_model_missing(tmp_path, monkeypatch):
+    """模型未下载时按热键：只提示下载，不创建 Recorder，避免白说一段再报错。"""
+    app = _make_app(tmp_path)
+    monkeypatch.setattr(main, "missing_local_model", lambda model: True)
+    created = []
+    monkeypatch.setattr(main, "Recorder", lambda *a, **k: created.append(k))
+
+    app.on_toggle()
+
+    assert created == []
+    kind, payload = app._ui_queue.get_nowait()
+    assert kind == "toast"
+    assert "模型未下载" in payload[0]
+
+
 def test_cycle_refine_levels(tmp_path, monkeypatch):
     saved = []
     monkeypatch.setattr(main, "save_config", lambda cfg: saved.append(dict(cfg)))

@@ -167,7 +167,7 @@ mao-voice/
 ## 开发
 
 ```powershell
-python -m pytest voice_ime/tests -q     # 运行测试（2026-11-01 实测 130 passed）
+python -m pytest voice_ime/tests -q     # 运行测试（2026-11-01 实测 133 passed）
 python -m ruff check voice_ime          # 静态检查（CI 同款）
 python -m compileall -q voice_ime       # 语法检查
 python voice_ime/tests/e2e_live.py --no-asr   # 真机冒烟：注入 + 剪贴板恢复（不需要模型）

@@ -38,6 +38,19 @@ NORMALIZE_MIN_RMS = 1e-3                  # 整体 RMS 低于该值视为近静�
 # =============================================================================
 
 
+def looks_like_local_path(model_name):
+    """配置值是本地目录路径（而不是 small/medium 这类模型名）。"""
+    name = (model_name or "").strip()
+    if not name:
+        return False
+    return os.path.isabs(name) or os.sep in name or "/" in name or name.startswith(".")
+
+
+def missing_local_model(model_name):
+    """本地模型目录不存在时返回 True；模型名（如 small）返回 False，交给下载逻辑。"""
+    return looks_like_local_path(model_name) and not os.path.isdir(model_name)
+
+
 def _frozen_nvidia_dirs():
     """PyInstaller 打包（frozen）时定位随包分发的 nvidia DLL 目录（v5.18）。
 
@@ -297,6 +310,12 @@ class WhisperEngine:
         with self._load_lock:
             if self.model is not None:
                 return
+            if missing_local_model(self.model_name):
+                raise RuntimeError(
+                    "模型未下载：{} 不存在，请先运行 python download_model.py".format(
+                        self.model_name
+                    )
+                )
             from faster_whisper import WhisperModel
             if self._gpu_disabled or not _cuda_libs_ready():
                 # 已回退过 CPU 或 CUDA 运行库缺失：直接走 CPU，

@@ -167,7 +167,7 @@ mao-voice/
 ## Development
 
 ```powershell
-python -m pytest voice_ime/tests -q     # run tests (130 passed on 2026-11-01)
+python -m pytest voice_ime/tests -q     # run tests (133 passed on 2026-11-01)
 python -m ruff check voice_ime          # lint (same as CI)
 python -m compileall -q voice_ime       # syntax check
 python voice_ime/tests/e2e_live.py --no-asr   # live smoke: injection + clipboard restore (no model needed)
