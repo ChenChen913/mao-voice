@@ -146,9 +146,9 @@ class QtOverlay(QWidget):
             text = self._text[: self._max_chars]
             if len(self._text) > self._max_chars:
                 text += "…"
-            self._draw_text(painter, text, cfg["color"], font_size=10)
+            self._draw_text(painter, text, cfg["color"], font_size=12)
 
-    def _draw_text(self, painter, text, color, font_size=11):
+    def _draw_text(self, painter, text, color, font_size=13):
         if not text:
             return
         painter.setPen(QColor(color))

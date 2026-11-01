@@ -81,11 +81,20 @@ flowchart LR
 
 除了托盘 + 热键的原有形态，仓库里新增了一个 PySide6 客户端外壳，视觉按 `code.html` 原型重做成深色仪表风：主窗口（首页 / 历史 / 词库 / 设置）、悬浮胶囊与托盘，直接复用现有引擎。
 
-| 首页 | 历史 |
-| --- | --- |
-| ![客户端首页](docs/images/client-home.png) | ![客户端历史](docs/images/client-history.png) |
-| **设置** | **词库** |
-| ![客户端设置](docs/images/client-settings.png) | ![客户端词库](docs/images/client-dictionary.png) |
+![客户端首页](docs/images/client-home.png)
+
+<details>
+<summary>更多界面：历史 / 设置 / 词库 / 录音胶囊</summary>
+
+![客户端历史](docs/images/client-history.png)
+
+![客户端设置](docs/images/client-settings.png)
+
+![客户端词库](docs/images/client-dictionary.png)
+
+![录音胶囊](docs/images/client-overlay-recording.png)
+
+</details>
 
 ```powershell
 cd voice_ime

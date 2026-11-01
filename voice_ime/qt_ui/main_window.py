@@ -5,10 +5,10 @@ import math
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor, QFont, QFontMetrics, QGuiApplication, QIcon, QMouseEvent, QPainter,
-    QPen, QPixmap,
+    QPainterPath, QPen, QPixmap,
 )
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
@@ -103,6 +103,12 @@ def model_ready(cfg):
     return Path(model).exists()
 
 
+def short_model_name(cfg):
+    """把 faster-whisper-large-v3-turbo 缩成 large-v3-turbo，避免界面里被截断。"""
+    name = Path((cfg.get("asr", {}).get("model") or "")).name
+    return name.replace("faster-whisper-", "").replace("faster-whisper", "本地模型") or "本地模型"
+
+
 def parse_ts(value):
     try:
         return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
@@ -127,9 +133,10 @@ def make_glyph(kind, color, size=16):
     p.setPen(QPen(QColor(color), 1.2))
     s = size
     if kind == "mic":
-        p.drawRoundedRect(int(s * 0.32), int(s * 0.1), int(s * 0.36), int(s * 0.5), 5, 5)
-        p.drawLine(int(s * 0.5), int(s * 0.6), int(s * 0.5), int(s * 0.78))
-        p.drawLine(int(s * 0.28), int(s * 0.78), int(s * 0.72), int(s * 0.78))
+        p.drawRoundedRect(int(s * 0.35), int(s * 0.08), int(s * 0.3), int(s * 0.42), 3, 3)
+        p.drawArc(int(s * 0.27), int(s * 0.3), int(s * 0.46), int(s * 0.42), 180 * 16, 180 * 16)
+        p.drawLine(int(s * 0.5), int(s * 0.72), int(s * 0.5), int(s * 0.86))
+        p.drawLine(int(s * 0.32), int(s * 0.86), int(s * 0.68), int(s * 0.86))
     elif kind == "history":
         p.drawEllipse(int(s * 0.12), int(s * 0.12), int(s * 0.76), int(s * 0.76))
         p.drawLine(int(s * 0.5), int(s * 0.3), int(s * 0.5), int(s * 0.5))
@@ -151,7 +158,7 @@ def make_glyph(kind, color, size=16):
 
 
 class LogoLabel(QLabel):
-    def __init__(self, size=22):
+    def __init__(self, size=26):
         super().__init__()
         path = asset_path("logo.png")
         pix = QPixmap(path) if Path(path).exists() else QPixmap()
@@ -159,10 +166,23 @@ class LogoLabel(QLabel):
             self.setText("●")
             self.setStyleSheet("color: %s; font-size: 18px;" % PRIMARY)
         else:
-            self.setPixmap(pix.scaled(
+            # 原图四角是白底：先裁掉白边，再按圆角裁切，避免深色顶栏上露出白角
+            inset = int(pix.width() * 0.045)
+            cropped = pix.copy(inset, inset, pix.width() - inset * 2, pix.height() - inset * 2)
+            src = cropped.scaled(
                 QSize(size, size), Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
-            ))
+            )
+            rounded = QPixmap(size, size)
+            rounded.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(rounded)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            clip = QPainterPath()
+            clip.addRoundedRect(QRectF(0, 0, size, size), size * 0.28, size * 0.28)
+            painter.setClipPath(clip)
+            painter.drawPixmap(0, 0, src)
+            painter.end()
+            self.setPixmap(rounded)
 
 
 # --------------------------------------------------------------------------
@@ -170,64 +190,67 @@ class LogoLabel(QLabel):
 # --------------------------------------------------------------------------
 
 QSS = """
-QWidget#Root { background: %(bg)s; color: %(text)s; font-family: "%(font)s"; font-size: 12px; }
+QWidget#Root { background: %(bg)s; color: %(text)s; font-family: "%(font)s"; font-size: 16px; }
 QWidget#TopBar { background: %(lowest)s; border-bottom: 1px solid %(outline_variant)s; }
 QWidget#SideBar { background: %(low)s; border-right: 1px solid %(outline_variant)s; }
 QWidget#StatusBar { background: %(lowest)s; border-top: 1px solid %(outline_variant)s; }
 QLabel { background: transparent; color: %(text)s; }
-QLabel#Mono { font-family: "%(mono)s"; font-size: 10px; color: %(outline)s; }
-QLabel#Muted { color: %(muted)s; }
-QLabel#Title { font-size: 14px; font-weight: 600; color: %(text)s; }
-QLabel#H1 { font-size: 15px; font-weight: 600; color: %(text)s; }
-QLabel#H2 { font-size: 13px; font-weight: 600; color: %(text)s; }
+QLabel#Mono { font-family: "%(mono)s"; font-size: 13px; color: %(outline)s; }
+QLabel#Muted { color: %(muted)s; font-size: 14px; }
+QLabel#Title { font-size: 19px; font-weight: 600; color: %(text)s; }
+QLabel#H1 { font-size: 22px; font-weight: 600; color: %(text)s; }
+QLabel#H2 { font-size: 17px; font-weight: 600; color: %(text)s; }
 QFrame#Banner, QFrame#Card { background: %(low)s; border: 1px solid %(outline_variant)s; border-radius: %(radius)s; }
 QFrame#Hero { background: %(lowest)s; border: 1px solid %(outline_variant)s; border-radius: %(radius)s; }
 QFrame#Inner { background: %(container)s; border: 1px solid %(outline_variant)s; border-radius: %(radius_sm)s; }
 QFrame#Row { background: %(container)s; border: 1px solid %(outline_variant)s; border-radius: %(radius_sm)s; }
 QFrame#Row:hover { background: %(high)s; }
 QPushButton#Nav {
-    text-align: left; padding: 6px 8px; border: none; border-radius: %(radius_sm)s;
-    color: %(muted)s; background: transparent;
+    text-align: left; padding: 10px 12px 10px 10px; border: none;
+    border-left: 2px solid transparent; border-radius: %(radius_sm)s;
+    color: %(muted)s; background: transparent; font-size: 15px;
 }
 QPushButton#Nav:hover { background: %(container)s; color: %(text)s; }
-QPushButton#Nav:checked { background: %(highest)s; color: %(text)s; }
+QPushButton#Nav:checked {
+    background: %(highest)s; color: %(text)s; border-left: 2px solid %(primary)s;
+}
 QPushButton#Primary {
     background: %(primary)s; color: #002e6a; border: none; border-radius: %(radius_sm)s;
-    padding: 5px 12px; font-size: 12px; font-weight: 600;
+    padding: 8px 18px; font-size: 14px; font-weight: 600;
 }
 QPushButton#Primary:hover { background: #d8e2ff; }
 QPushButton#Ghost {
     background: %(container)s; color: %(muted)s; border: 1px solid %(outline_variant)s;
-    border-radius: %(radius_sm)s; padding: 4px 10px; font-size: 11px;
+    border-radius: %(radius_sm)s; padding: 7px 14px; font-size: 13px;
 }
 QPushButton#Ghost:hover { background: %(high)s; color: %(text)s; }
-QPushButton#WinBtn { background: transparent; color: %(outline)s; border: none; font-size: 13px; }
+QPushButton#WinBtn { background: transparent; color: %(outline)s; border: none; font-size: 16px; }
 QPushButton#WinBtn:hover { background: %(high)s; color: %(text)s; }
 QPushButton#Record {
-    background: %(high)s; color: %(text)s; border: 1px solid %(outline)s;
-    border-radius: %(radius)s; padding: 10px 18px; font-size: 14px; font-weight: 600;
+    background: %(primary)s; color: #002e6a; border: none;
+    border-radius: %(radius)s; padding: 14px 28px; font-size: 18px; font-weight: 600;
 }
-QPushButton#Record:hover { background: %(highest)s; border-color: %(primary)s; }
+QPushButton#Record:hover { background: #c4d6ff; }
 QPushButton#Chip {
     background: transparent; color: %(outline)s; border: 1px solid transparent;
-    border-radius: %(radius_sm)s; padding: 2px 8px; font-size: 11px;
+    border-radius: %(radius_sm)s; padding: 4px 11px; font-size: 13px;
 }
 QPushButton#Chip:hover { color: %(text)s; background: %(container)s; }
 QPushButton#Chip:checked { color: %(text)s; background: %(highest)s; border-color: %(outline_variant)s; }
 QLineEdit, QComboBox, QDoubleSpinBox {
     background: %(container)s; color: %(text)s; border: 1px solid %(outline_variant)s;
-    border-radius: %(radius_sm)s; padding: 4px 8px; min-height: 22px;
+    border-radius: %(radius_sm)s; padding: 7px 11px; min-height: 30px; font-size: 14px;
 }
 QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border-color: %(primary)s; }
 QComboBox QAbstractItemView { background: %(low)s; color: %(text)s; selection-background-color: %(high)s; }
-QCheckBox { color: %(text)s; spacing: 8px; }
-QListWidget { background: transparent; border: none; outline: none; }
-QListWidget::item { padding: 7px 8px; border-radius: %(radius_sm)s; color: %(text)s; }
+QCheckBox { color: %(text)s; spacing: 10px; font-size: 14px; }
+QListWidget { background: transparent; border: none; outline: none; font-size: 14px; }
+QListWidget::item { padding: 9px 10px; border-radius: %(radius_sm)s; color: %(text)s; }
 QListWidget::item:hover { background: %(container)s; }
 QListWidget::item:selected { background: %(highest)s; color: %(text)s; }
-QTableWidget { background: %(lowest)s; border: 1px solid %(outline_variant)s; border-radius: %(radius)s; gridline-color: %(outline_variant)s; }
-QHeaderView::section { background: %(low)s; color: %(outline)s; border: none; padding: 6px 8px; font-size: 10px; }
-QTableWidget::item { padding: 4px 8px; }
+QTableWidget { background: %(lowest)s; border: 1px solid %(outline_variant)s; border-radius: %(radius)s; gridline-color: %(outline_variant)s; font-size: 14px; }
+QHeaderView::section { background: %(low)s; color: %(outline)s; border: none; padding: 10px 12px; font-size: 13px; }
+QTableWidget::item { padding: 6px 10px; }
 QTextEdit, QPlainTextEdit { background: %(lowest)s; color: %(text)s; border: 1px solid %(outline_variant)s; border-radius: %(radius_sm)s; }
 QScrollArea { border: none; background: transparent; }
 QScrollBar:vertical { background: transparent; width: 8px; }
@@ -249,12 +272,12 @@ class NavButton(QPushButton):
         self.setObjectName("Nav")
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setIcon(make_glyph(kind, TEXT_VARIANT))
-        self.setIconSize(QSize(16, 16))
+        self.setIcon(make_glyph(kind, TEXT_VARIANT, 18))
+        self.setIconSize(QSize(18, 18))
 
     def set_active(self, active):
         self.setChecked(active)
-        self.setIcon(make_glyph(self.kind, PRIMARY if active else TEXT_VARIANT))
+        self.setIcon(make_glyph(self.kind, PRIMARY if active else TEXT_VARIANT, 18))
 
 
 class WaveformWidget(QWidget):
@@ -262,7 +285,7 @@ class WaveformWidget(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setMinimumHeight(88)
+        self.setMinimumHeight(104)
         self._phase = 0.0
         self._timer = QTimer(self)
         self._timer.setInterval(120)
@@ -281,14 +304,14 @@ class WaveformWidget(QWidget):
         p.setPen(QPen(QColor(OUTLINE_VARIANT), 1))
         p.drawRoundedRect(rect.adjusted(0, 0, -1, -1), RADIUS_SM, RADIUS_SM)
 
-        p.setFont(QFont(FONT_MONO, 8))
+        p.setFont(QFont(FONT_MONO, 12))
         p.setPen(QColor(OUTLINE))
-        p.drawText(rect.adjusted(10, 6, -10, 0), Qt.AlignmentFlag.AlignLeft, "QPAINTER · 实时电平")
-        p.drawText(rect.adjusted(10, 6, -10, 0), Qt.AlignmentFlag.AlignRight, "-24 dB")
+        p.drawText(rect.adjusted(14, 10, -14, 0), Qt.AlignmentFlag.AlignLeft, "实时波形")
+        p.drawText(rect.adjusted(14, 10, -14, 0), Qt.AlignmentFlag.AlignRight, "本地识别")
 
-        bars = 23
-        gap = 3
-        bar_w = 3
+        bars = 55
+        gap = 6
+        bar_w = 4
         total = bars * bar_w + (bars - 1) * gap
         start = (self.width() - total) // 2
         cy = self.height() / 2
@@ -303,10 +326,10 @@ class WaveformWidget(QWidget):
                 int(start + i * (bar_w + gap)), int(cy - h / 2),
                 bar_w, int(h), 1, 1,
             )
-        p.setFont(QFont(FONT_MONO, 8))
+        p.setFont(QFont(FONT_MONO, 12))
         p.setPen(QColor(OUTLINE))
-        p.drawText(rect.adjusted(10, 0, -10, -5), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom, "NOISE_FLOOR -48dB")
-        p.drawText(rect.adjusted(10, 0, -10, -5), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, "VAD · LATENCY 12ms")
+        p.drawText(rect.adjusted(14, 0, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom, "说话时波形律动")
+        p.drawText(rect.adjusted(14, 0, -14, -10), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, "音频不出本机")
 
 
 class StatBox(QFrame):
@@ -314,12 +337,12 @@ class StatBox(QFrame):
         super().__init__()
         self.setObjectName("Inner")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(2)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(3)
         t = QLabel(title)
         t.setObjectName("Mono")
         v = QLabel("{} {}".format(value, unit).strip())
-        v.setStyleSheet("font-size: 18px; font-weight: 600; color: %s; font-family: '%s';" % (color, FONT_MONO))
+        v.setStyleSheet("font-size: 22px; font-weight: 600; color: %s; font-family: '%s';" % (color, FONT_MONO))
         lay.addWidget(t)
         lay.addWidget(v)
 
@@ -338,18 +361,18 @@ class HomePage(QWidget):
         self._cfg = cfg
         self._model_ok = model_ready(cfg)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 8)
-        lay.setSpacing(8)
+        lay.setContentsMargins(20, 16, 20, 14)
+        lay.setSpacing(14)
 
         # 顶部状态条
         banner = QFrame()
         banner.setObjectName("Banner")
-        banner.setFixedHeight(40)
+        banner.setFixedHeight(58)
         b = QHBoxLayout(banner)
-        b.setContentsMargins(12, 0, 12, 0)
-        b.setSpacing(10)
+        b.setContentsMargins(16, 0, 16, 0)
+        b.setSpacing(12)
         self.dot = QLabel("●")
-        self.dot.setStyleSheet("color: %s; font-size: 12px;" % PRIMARY)
+        self.dot.setStyleSheet("color: %s; font-size: 14px;" % PRIMARY)
         self.status = QLabel("就绪 · 待命")
         self.status.setObjectName("H1")
         sep = QLabel("|")
@@ -358,7 +381,9 @@ class HomePage(QWidget):
         self.model_label.setObjectName("Muted")
         self.hotkey_hint = QLabel("全局唤醒   " + self._hotkey_label())
         self.hotkey_hint.setObjectName("Mono")
-        self.hotkey_hint.setStyleSheet("color: %s; font-family: '%s';" % (PRIMARY, FONT_MONO))
+        self.hotkey_hint.setStyleSheet(
+            "color: %s; font-family: '%s'; font-size: 13px;" % (PRIMARY, FONT_MONO)
+        )
         b.addWidget(self.dot)
         b.addWidget(self.status)
         b.addWidget(sep)
@@ -371,8 +396,8 @@ class HomePage(QWidget):
         hero = QFrame()
         hero.setObjectName("Hero")
         h = QVBoxLayout(hero)
-        h.setContentsMargins(16, 14, 16, 14)
-        h.setSpacing(10)
+        h.setContentsMargins(20, 16, 20, 16)
+        h.setSpacing(12)
         self.wave = WaveformWidget()
         h.addWidget(self.wave, 1)
         center = QHBoxLayout()
@@ -380,33 +405,28 @@ class HomePage(QWidget):
         self.record_btn = QPushButton("开始说话")
         self.record_btn.setObjectName("Record")
         self.record_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.record_btn.setIcon(make_glyph("mic", PRIMARY, 20))
-        self.record_btn.setIconSize(QSize(20, 20))
+        self.record_btn.setIcon(make_glyph("mic", "#002e6a", 22))
+        self.record_btn.setIconSize(QSize(22, 22))
         self.record_btn.clicked.connect(self.record_clicked)
-        badge = QLabel(self._hotkey_label())
-        badge.setStyleSheet(
-            "color: %s; background: %s; border: 1px solid %s;"
-            "border-radius: 4px; padding: 2px 6px; font-family: '%s'; font-size: 10px;"
-            % (PRIMARY, SURFACE_LOWEST, OUTLINE_VARIANT, FONT_MONO)
-        )
         center.addWidget(self.record_btn)
-        center.addWidget(badge)
         center.addStretch(1)
         h.addLayout(center)
-        self.hint = QLabel("再按一次结束，文本自动写入当前光标处")
+        self.hint = QLabel("按一下开始，再按一次结束 · 文本自动写入当前光标处")
         self.hint.setObjectName("Mono")
         self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         h.addWidget(self.hint)
         lay.addWidget(hero, 1)
 
+        self._apply_record_style(False)
+
         # 底部：最近输入 + 统计
         bottom = QHBoxLayout()
-        bottom.setSpacing(8)
+        bottom.setSpacing(10)
         recent = QFrame()
         recent.setObjectName("Card")
         r = QVBoxLayout(recent)
-        r.setContentsMargins(10, 8, 10, 8)
-        r.setSpacing(6)
+        r.setContentsMargins(14, 12, 14, 12)
+        r.setSpacing(8)
         head = QHBoxLayout()
         t = QLabel("最近输入流水")
         t.setObjectName("H2")
@@ -419,36 +439,36 @@ class HomePage(QWidget):
         head.addWidget(more)
         r.addLayout(head)
         self.recent_box = QVBoxLayout()
-        self.recent_box.setSpacing(5)
+        self.recent_box.setSpacing(6)
         r.addLayout(self.recent_box)
         bottom.addWidget(recent, 8)
 
         stats = QFrame()
         stats.setObjectName("Card")
         s = QVBoxLayout(stats)
-        s.setContentsMargins(10, 8, 10, 8)
-        s.setSpacing(6)
+        s.setContentsMargins(14, 12, 14, 12)
+        s.setSpacing(8)
         sh = QHBoxLayout()
-        st = QLabel("今日吞吐统计")
+        st = QLabel("今日统计")
         st.setObjectName("H2")
-        auto = QLabel("AUTO-REFRESH")
+        auto = QLabel("自动刷新")
         auto.setObjectName("Mono")
         sh.addWidget(st)
         sh.addStretch(1)
         sh.addWidget(auto)
         s.addLayout(sh)
         grid = QGridLayout()
-        grid.setSpacing(6)
+        grid.setSpacing(8)
         self.stat_words = StatBox("累计转写", "0", "字")
         self.stat_time = StatBox("节省击键", "0", "分钟", SECONDARY)
-        self.stat_model = StatBox("识别模型", "—", "", SECONDARY)
+        self.stat_today = StatBox("今日条数", "0", "条", SECONDARY)
         self.stat_level = StatBox("纠错档位", "保守", "", TEXT)
         grid.addWidget(self.stat_words, 0, 0)
         grid.addWidget(self.stat_time, 0, 1)
-        grid.addWidget(self.stat_model, 1, 0)
+        grid.addWidget(self.stat_today, 1, 0)
         grid.addWidget(self.stat_level, 1, 1)
         s.addLayout(grid, 1)
-        bottom.addWidget(stats, 4)
+        bottom.addWidget(stats, 5)
         lay.addLayout(bottom)
 
         self.refresh_stats()
@@ -456,6 +476,19 @@ class HomePage(QWidget):
     def _hotkey_label(self):
         key = self._cfg.get("hotkey", "alt_r")
         return HOTKEY_LABELS.get(key, key)
+
+    def _apply_record_style(self, recording):
+        """空闲是主色按钮；录音中切成暖色「结束并写入」，让状态一眼可辨。"""
+        bg, fg, hover = (
+            (TERTIARY, "#3a1a00", "#ffd0ad") if recording
+            else (PRIMARY, "#002e6a", "#c4d6ff")
+        )
+        self.record_btn.setStyleSheet(
+            "QPushButton#Record { background: %s; color: %s; border: none;"
+            " border-radius: %s; padding: 14px 28px; font-size: 18px; font-weight: 600; }"
+            "QPushButton#Record:hover { background: %s; }" % (bg, fg, RADIUS, hover)
+        )
+        self.record_btn.setIcon(make_glyph("mic", fg, 22))
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -469,10 +502,12 @@ class HomePage(QWidget):
         self._model_ok = model_ready(cfg)
         hist = load_history()
         words = sum(len(x.get("final", "")) for x in hist)
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_count = sum(1 for x in hist if str(x.get("ts", ""))[:10] == today)
         self.stat_words.setVisible(True)
         self._set_stat(self.stat_words, str(words), "字")
         self._set_stat(self.stat_time, str(max(0, words // 40)), "分钟")
-        self._set_stat(self.stat_model, Path(cfg.get("asr", {}).get("model", "—")).name[:10], "")
+        self._set_stat(self.stat_today, str(today_count), "条")
         self._set_stat(self.stat_level, LEVEL_LABELS.get(
             cfg.get("refine", {}).get("level", "conservative"), "保守"
         ), "")
@@ -491,15 +526,15 @@ class HomePage(QWidget):
                 row = QFrame()
                 row.setObjectName("Row")
                 rl = QHBoxLayout(row)
-                rl.setContentsMargins(8, 4, 8, 4)
-                rl.setSpacing(8)
+                rl.setContentsMargins(12, 8, 12, 8)
+                rl.setSpacing(10)
                 tm = QLabel(x.get("ts", "")[11:19])
                 tm.setObjectName("Mono")
-                tm.setFixedWidth(52)
-                text = QLabel(elide(x.get("final", "").replace("\n", " "), 380, QFont(FONT_FAMILY, 11)))
-                text.setStyleSheet("font-size: 11px;")
+                tm.setFixedWidth(64)
+                text = QLabel(elide(x.get("final", "").replace("\n", " "), 520, QFont(FONT_FAMILY, 14)))
+                text.setStyleSheet("font-size: 14px;")
                 ok = QLabel("已注入")
-                ok.setStyleSheet("color: %s; font-size: 10px;" % SECONDARY)
+                ok.setStyleSheet("color: %s; font-size: 13px;" % SECONDARY)
                 rl.addWidget(tm)
                 rl.addWidget(text, 1)
                 rl.addWidget(ok)
@@ -513,8 +548,7 @@ class HomePage(QWidget):
     def _model_text(self, cfg):
         if not self._model_ok:
             return "模型未就绪 · 去设置里指定模型目录"
-        name = Path(cfg.get("asr", {}).get("model", "")).name or "本地模型"
-        return "{} · 本地".format(name)
+        return "{} · 本地".format(short_model_name(cfg))
 
     def update_config(self, cfg):
         self._cfg = cfg
@@ -527,18 +561,19 @@ class HomePage(QWidget):
                   "TRANSCRIBING": "转写中", "REFINING": "纠错中",
                   "INJECTING": "写入中", "ERROR": "出错了"}
         color = STATE_CONFIG.get(state, {"color": PRIMARY})["color"]
-        self.dot.setStyleSheet("color: %s; font-size: 12px;" % color)
+        self.dot.setStyleSheet("color: %s; font-size: 14px;" % color)
         self.status.setText(labels.get(state, state))
         if state == "RECORDING":
             self.record_btn.setText("结束并写入")
         elif state == "IDLE":
             self.record_btn.setText("开始说话")
+        self._apply_record_style(state == "RECORDING")
         if state == "IDLE" and not self._model_ok:
             self.status.setText("模型未就绪")
             self.hint.setText("先到设置里指定 faster-whisper 模型目录")
-            self.dot.setStyleSheet("color: %s; font-size: 12px;" % TERTIARY)
+            self.dot.setStyleSheet("color: %s; font-size: 14px;" % TERTIARY)
         elif state == "IDLE":
-            self.hint.setText("再按一次结束，文本自动写入当前光标处")
+            self.hint.setText("按一下开始，再按一次结束 · 文本自动写入当前光标处")
 
 
 # --------------------------------------------------------------------------
@@ -555,11 +590,11 @@ class HistoryPage(QWidget):
 
         top = QFrame()
         top.setObjectName("Banner")
-        top.setFixedHeight(36)
+        top.setFixedHeight(52)
         tl = QHBoxLayout(top)
-        tl.setContentsMargins(12, 0, 12, 0)
+        tl.setContentsMargins(20, 0, 20, 0)
         tip = QLabel("音频默认不留存 · 历史只保存纯文本")
-        tip.setStyleSheet("color: %s; font-size: 11px;" % SECONDARY)
+        tip.setStyleSheet("color: %s; font-size: 14px;" % SECONDARY)
         refresh = QPushButton("刷新")
         refresh.setObjectName("Ghost")
         refresh.clicked.connect(self.reload)
@@ -569,20 +604,20 @@ class HistoryPage(QWidget):
         lay.addWidget(top)
 
         body = QHBoxLayout()
-        body.setContentsMargins(12, 8, 12, 12)
-        body.setSpacing(8)
+        body.setContentsMargins(20, 14, 20, 18)
+        body.setSpacing(12)
         left = QFrame()
         left.setObjectName("Card")
-        left.setFixedWidth(340)
+        left.setFixedWidth(400)
         ll = QVBoxLayout(left)
-        ll.setContentsMargins(8, 8, 8, 8)
-        ll.setSpacing(6)
+        ll.setContentsMargins(10, 10, 10, 10)
+        ll.setSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText("检索转写文字…")
         self.search.textChanged.connect(self.reload)
         ll.addWidget(self.search)
         chips = QHBoxLayout()
-        chips.setSpacing(2)
+        chips.setSpacing(4)
         self.chip_buttons = {}
         for key, label in (("today", "今天"), ("week", "本周"),
                            ("month", "本月"), ("all", "全部")):
@@ -612,8 +647,8 @@ class HistoryPage(QWidget):
         self.detail_scroll.setWidgetResizable(True)
         self.detail = QWidget()
         self.detail_lay = QVBoxLayout(self.detail)
-        self.detail_lay.setContentsMargins(14, 12, 14, 12)
-        self.detail_lay.setSpacing(8)
+        self.detail_lay.setContentsMargins(18, 16, 18, 16)
+        self.detail_lay.setSpacing(10)
         self.detail_scroll.setWidget(self.detail)
         rl.addWidget(self.detail_scroll)
         body.addWidget(right, 1)
@@ -650,7 +685,7 @@ class HistoryPage(QWidget):
         for x in reversed(self._items):
             preview = x.get("final", "").replace("\n", " ")
             item = QListWidgetItem("{}  {}".format(x.get("ts", "")[11:19], elide(
-                preview, 260, QFont(FONT_FAMILY, 11)))
+                preview, 350, QFont(FONT_FAMILY, 14)))
             )
             self.list.addItem(item)
         self.list.blockSignals(False)
@@ -680,8 +715,8 @@ class HistoryPage(QWidget):
         frame = QFrame()
         frame.setObjectName("Inner")
         fl = QVBoxLayout(frame)
-        fl.setContentsMargins(10, 8, 10, 8)
-        fl.setSpacing(4)
+        fl.setContentsMargins(14, 12, 14, 12)
+        fl.setSpacing(6)
         t = QLabel(title)
         t.setObjectName("Mono")
         fl.addWidget(t)
@@ -689,7 +724,7 @@ class HistoryPage(QWidget):
         body.setWordWrap(True)
         body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         body.setStyleSheet(
-            "font-family: '%s'; font-size: 11px; color: %s;"
+            "font-family: '%s'; font-size: 14px; color: %s;"
             % (FONT_MONO if mono else FONT_FAMILY, TEXT_VARIANT if accent == OUTLINE_VARIANT else TEXT)
         )
         fl.addWidget(body)
@@ -712,10 +747,10 @@ class HistoryPage(QWidget):
         hw = QWidget()
         hw.setLayout(head)
         self.detail_lay.addWidget(hw)
-        self.detail_lay.addWidget(self._card("声学原生输出", x.get("raw", ""), mono=True))
-        self.detail_lay.addWidget(self._card("纠错润色结果 · 最终写入", x.get("final", ""), PRIMARY, mono=True))
+        self.detail_lay.addWidget(self._card("原始转写", x.get("raw", ""), mono=True))
+        self.detail_lay.addWidget(self._card("纠错结果 · 最终写入", x.get("final", ""), PRIMARY, mono=True))
         grid = QGridLayout()
-        grid.setSpacing(6)
+        grid.setSpacing(8)
         values = [("时长", "{} 秒".format(x.get("duration_s", "?"))),
                   ("字数", "{} 字".format(len(x.get("final", "")))),
                   ("时间", x.get("ts", "")[11:19]),
@@ -742,12 +777,12 @@ class DictionaryPage(QWidget):
         self._tab = "hot"
         self._rows = []
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(12)
 
         head = QHBoxLayout()
         tabs = QHBoxLayout()
-        tabs.setSpacing(2)
+        tabs.setSpacing(4)
         self.tab_buttons = {}
         for key, label in (("hot", "专有热词"), ("rule", "替换规则"), ("learn", "学习记录")):
             b = QPushButton(label)
@@ -762,7 +797,7 @@ class DictionaryPage(QWidget):
         head.addStretch(1)
         self.search = QLineEdit()
         self.search.setPlaceholderText("搜索词条…")
-        self.search.setFixedWidth(180)
+        self.search.setFixedWidth(240)
         self.search.textChanged.connect(self._reload)
         export = QPushButton("导出")
         export.setObjectName("Ghost")
@@ -774,7 +809,7 @@ class DictionaryPage(QWidget):
         hint = QLabel("热词影响识别提示词，替换规则作用于纠错输出；学习规则来自历史纠错沉淀。")
         hint.setStyleSheet(
             "color: %s; background: %s; border: 1px solid %s;"
-            "border-radius: 4px; padding: 6px 10px; font-size: 11px;"
+            "border-radius: 4px; padding: 10px 14px; font-size: 14px;"
             % (TEXT_VARIANT, SURFACE_LOW, OUTLINE_VARIANT)
         )
         lay.addWidget(hint)
@@ -783,7 +818,7 @@ class DictionaryPage(QWidget):
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["词条 / 原词", "指定写法", "类型", "来源", "命中"])
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.verticalHeader().setDefaultSectionSize(40)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -819,10 +854,10 @@ class DictionaryPage(QWidget):
                 elif j >= 2:
                     item.setForeground(QColor(OUTLINE))
                 self.table.setItem(i, j, item)
-        self.table.setColumnWidth(0, 220)
-        self.table.setColumnWidth(1, 180)
-        self.table.setColumnWidth(2, 110)
-        self.table.setColumnWidth(3, 110)
+        self.table.setColumnWidth(0, 240)
+        self.table.setColumnWidth(1, 200)
+        self.table.setColumnWidth(2, 120)
+        self.table.setColumnWidth(3, 120)
         self.footer.setText("当前 {} 条记录 · 词库文件：词库.txt".format(len(rows)))
         self._rows = rows
 
@@ -860,11 +895,11 @@ class SettingsPage(QWidget):
         lay.setSpacing(0)
 
         nav = QWidget()
-        nav.setFixedWidth(170)
+        nav.setFixedWidth(200)
         nav.setStyleSheet("background: %s; border-right: 1px solid %s;" % (SURFACE_LOW, OUTLINE_VARIANT))
         nl = QVBoxLayout(nav)
-        nl.setContentsMargins(8, 10, 8, 10)
-        nl.setSpacing(2)
+        nl.setContentsMargins(10, 12, 10, 12)
+        nl.setSpacing(4)
         label = QLabel("配置分组")
         label.setObjectName("Mono")
         nl.addWidget(label)
@@ -891,9 +926,9 @@ class SettingsPage(QWidget):
 
         bottom = QFrame()
         bottom.setObjectName("Banner")
-        bottom.setFixedHeight(44)
+        bottom.setFixedHeight(56)
         bl = QHBoxLayout(bottom)
-        bl.setContentsMargins(12, 0, 12, 0)
+        bl.setContentsMargins(14, 0, 14, 0)
         self.result = QLabel("修改后点保存，热键会重载监听")
         self.result.setObjectName("Mono")
         reset = QPushButton("放弃修改")
@@ -922,8 +957,8 @@ class SettingsPage(QWidget):
     def _page(self):
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(14, 12, 14, 12)
-        v.setSpacing(8)
+        v.setContentsMargins(22, 18, 22, 18)
+        v.setSpacing(12)
         return w, v
 
     def _section_head(self, layout, title, desc):
@@ -943,10 +978,10 @@ class SettingsPage(QWidget):
         card = QFrame()
         card.setObjectName("Inner")
         cl = QVBoxLayout(card)
-        cl.setContentsMargins(10, 8, 10, 8)
-        cl.setSpacing(4)
+        cl.setContentsMargins(14, 12, 14, 12)
+        cl.setSpacing(6)
         t = QLabel(title)
-        t.setStyleSheet("font-size: 12px; font-weight: 600;")
+        t.setStyleSheet("font-size: 16px; font-weight: 600;")
         d = QLabel(desc)
         d.setObjectName("Muted")
         d.setWordWrap(True)
@@ -1035,7 +1070,7 @@ class SettingsPage(QWidget):
         self._card(v, "学习规则", "从润色差异中沉淀「原词→修正」，写入 learned_rules.json。", self.learn_cb)
         note = QLabel("音频只在内存中处理；开启纠错时，识别文本会发往你配置的 LLM 端点。")
         note.setWordWrap(True)
-        note.setStyleSheet("color: %s; font-size: 11px;" % TERTIARY)
+        note.setStyleSheet("color: %s; font-size: 14px;" % TERTIARY)
         v.addWidget(note)
         v.addStretch(1)
         self.stack.addWidget(self._scroll(page))
@@ -1055,7 +1090,7 @@ class SettingsPage(QWidget):
             a = QLabel(k)
             a.setObjectName("Mono")
             b = QLabel(val)
-            b.setStyleSheet("font-family: '%s'; font-size: 11px;" % FONT_MONO)
+            b.setStyleSheet("font-family: '%s'; font-size: 14px;" % FONT_MONO)
             row.addWidget(a)
             row.addStretch(1)
             row.addWidget(b)
@@ -1069,7 +1104,8 @@ class SettingsPage(QWidget):
         for i, b in enumerate(self.nav_buttons):
             b.setChecked(i == idx)
             b.setStyleSheet(
-                "text-align:left; padding:6px 8px; border:none; border-radius:4px;"
+                "text-align:left; padding:9px 12px; border:none; border-radius:4px;"
+                + "font-size: 15px;"
                 + ("background:%s; color:%s;" % (SURFACE_HIGHEST, TEXT)
                    if i == idx else "background:transparent; color:%s;" % TEXT_VARIANT)
             )
@@ -1142,28 +1178,30 @@ class TopBar(QWidget):
         self._window = window
         self._drag = None
         self.setObjectName("TopBar")
-        self.setFixedHeight(34)
+        self.setFixedHeight(48)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 0, 6, 0)
-        lay.setSpacing(8)
-        lay.addWidget(LogoLabel(20))
+        lay.setContentsMargins(12, 0, 8, 0)
+        lay.setSpacing(10)
+        lay.addWidget(LogoLabel(26))
         title = QLabel("mao-voice")
         title.setObjectName("Title")
         lay.addWidget(title)
 
         self.status_pill = QFrame()
+        self.status_pill.setObjectName("StatusPill")
         self.status_pill.setStyleSheet(
-            "background: %s; border: 1px solid %s; border-radius: 4px;"
+            "QFrame#StatusPill { background: %s; border: 1px solid %s; border-radius: 6px; }"
+            "QFrame#StatusPill QLabel { background: transparent; border: none; }"
             % (SURFACE_CONTAINER, OUTLINE_VARIANT)
         )
         pl = QHBoxLayout(self.status_pill)
-        pl.setContentsMargins(7, 1, 7, 1)
-        pl.setSpacing(5)
+        pl.setContentsMargins(9, 2, 9, 2)
+        pl.setSpacing(6)
         self.status_dot = QLabel("●")
-        self.status_dot.setStyleSheet("color: %s; font-size: 9px;" % SECONDARY)
-        self.status_text = QLabel("就绪 / READY")
+        self.status_dot.setStyleSheet("color: %s; font-size: 12px;" % SECONDARY)
+        self.status_text = QLabel("就绪")
         self.status_text.setStyleSheet(
-            "font-family: '%s'; font-size: 9px; color: %s;" % (FONT_MONO, TEXT_VARIANT)
+            "font-family: '%s'; font-size: 13px; color: %s;" % (FONT_MONO, TEXT_VARIANT)
         )
         pl.addWidget(self.status_dot)
         pl.addWidget(self.status_text)
@@ -1172,7 +1210,9 @@ class TopBar(QWidget):
 
         self.model_chip = QLabel()
         self.model_chip.setObjectName("Mono")
-        self.model_chip.setStyleSheet("font-size: 9px; color: %s;" % OUTLINE)
+        self.model_chip.setStyleSheet(
+            "font-size: 13px; font-family: '%s'; color: %s;" % (FONT_MONO, OUTLINE)
+        )
         lay.addWidget(self.model_chip)
 
         for text, tip, slot in (
@@ -1183,7 +1223,7 @@ class TopBar(QWidget):
             b = QPushButton(text)
             b.setObjectName("WinBtn")
             b.setToolTip(tip)
-            b.setFixedSize(28, 24)
+            b.setFixedSize(32, 28)
             b.clicked.connect(slot)
             lay.addWidget(b)
 
@@ -1218,8 +1258,8 @@ class MainWindow(QWidget):
         super().__init__(None, Qt.WindowType.FramelessWindowHint)
         self.setObjectName("Root")
         self.setStyleSheet(QSS)
-        self.resize(1000, 660)
-        self.setMinimumSize(860, 560)
+        self.resize(1140, 760)
+        self.setMinimumSize(1000, 680)
         self.setWindowTitle("mao-voice")
 
         cfg = load_cfg()
@@ -1259,13 +1299,13 @@ class MainWindow(QWidget):
     def _build_sidebar(self):
         side = QWidget()
         side.setObjectName("SideBar")
-        side.setFixedWidth(190)
+        side.setFixedWidth(216)
         lay = QVBoxLayout(side)
-        lay.setContentsMargins(8, 10, 8, 8)
-        lay.setSpacing(2)
-        lab = QLabel("WORKSPACE")
+        lay.setContentsMargins(14, 14, 14, 12)
+        lay.setSpacing(3)
+        lab = QLabel("工作区")
         lab.setObjectName("Mono")
-        lab.setStyleSheet("font-size: 9px; letter-spacing: 1px; padding: 0 4px;")
+        lab.setStyleSheet("font-size: 13px; letter-spacing: 1px; padding: 0 6px;")
         lay.addWidget(lab)
         self.nav_buttons = {}
         for name, kind in (("首页", "mic"), ("历史", "history"),
@@ -1280,24 +1320,24 @@ class MainWindow(QWidget):
         line.setFixedHeight(1)
         line.setStyleSheet("background: %s;" % OUTLINE_VARIANT)
         lay.addWidget(line)
-        lab2 = QLabel("SYSTEM")
+        lab2 = QLabel("系统")
         lab2.setObjectName("Mono")
-        lab2.setStyleSheet("font-size: 9px; letter-spacing: 1px; padding: 4px 4px 0;")
+        lab2.setStyleSheet("font-size: 13px; letter-spacing: 1px; padding: 6px 6px 0;")
         lay.addWidget(lab2)
         status = QLabel("托盘常驻运行中")
         status.setObjectName("Mono")
-        status.setStyleSheet("font-size: 9px; padding: 0 4px;")
+        status.setStyleSheet("font-size: 13px; padding: 0 6px;")
         lay.addWidget(status)
         exit_btn = QPushButton("退出程序")
         exit_btn.setObjectName("Nav")
-        exit_btn.setIcon(make_glyph("power", TEXT_VARIANT))
-        exit_btn.setIconSize(QSize(16, 16))
+        exit_btn.setIcon(make_glyph("power", TEXT_VARIANT, 18))
+        exit_btn.setIconSize(QSize(18, 18))
         exit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         exit_btn.clicked.connect(lambda: self.quit_requested.emit())
         lay.addWidget(exit_btn)
         ver = QLabel("v{} · 客户端预览".format(__version__))
         ver.setObjectName("Mono")
-        ver.setStyleSheet("font-size: 9px; padding: 4px;")
+        ver.setStyleSheet("font-size: 13px; padding: 6px;")
         ver.setWordWrap(True)
         lay.addWidget(ver)
         return side
@@ -1305,18 +1345,18 @@ class MainWindow(QWidget):
     def _build_statusbar(self):
         bar = QWidget()
         bar.setObjectName("StatusBar")
-        bar.setFixedHeight(24)
+        bar.setFixedHeight(30)
         lay = QHBoxLayout(bar)
-        lay.setContentsMargins(10, 0, 4, 0)
-        lay.setSpacing(8)
+        lay.setContentsMargins(12, 0, 6, 0)
+        lay.setSpacing(10)
         self.sb_dot = QLabel("●")
-        self.sb_dot.setStyleSheet("color: %s; font-size: 9px;" % SECONDARY)
+        self.sb_dot.setStyleSheet("color: %s; font-size: 13px;" % SECONDARY)
         self.sb_model = QLabel()
         self.sb_level = QLabel()
         self.sb_paste = QLabel()
         for w in (self.sb_model, self.sb_level, self.sb_paste):
             w.setObjectName("Mono")
-            w.setStyleSheet("font-size: 9px;")
+            w.setStyleSheet("font-size: 13px;")
         lay.addWidget(self.sb_dot)
         lay.addWidget(self.sb_model)
         lay.addWidget(self._sb_sep())
@@ -1326,15 +1366,15 @@ class MainWindow(QWidget):
         lay.addStretch(1)
         privacy = QLabel("音频: 不留存")
         privacy.setObjectName("Mono")
-        privacy.setStyleSheet("color: %s; font-size: 9px;" % SECONDARY)
+        privacy.setStyleSheet("color: %s; font-size: 13px;" % SECONDARY)
         lay.addWidget(privacy)
         lay.addWidget(self._sb_sep())
         ver = QLabel("v{}".format(__version__))
         ver.setObjectName("Mono")
-        ver.setStyleSheet("font-size: 9px;")
+        ver.setStyleSheet("font-size: 13px;")
         lay.addWidget(ver)
         grip = QSizeGrip(bar)
-        grip.setFixedSize(10, 10)
+        grip.setFixedSize(12, 12)
         lay.addWidget(grip)
         return bar
 
@@ -1342,7 +1382,7 @@ class MainWindow(QWidget):
     def _sb_sep():
         s = QLabel("|")
         s.setObjectName("Mono")
-        s.setStyleSheet("font-size: 9px;")
+        s.setStyleSheet("font-size: 13px;")
         return s
 
     def _apply_cfg(self, cfg):
@@ -1351,15 +1391,15 @@ class MainWindow(QWidget):
         self.home.update_config(cfg)
 
     def _update_statusbar(self, cfg):
-        model = Path(cfg.get("asr", {}).get("model", "—")).name or "—"
-        self.sb_model.setText("模型: " + model[:18])
+        model = short_model_name(cfg)
+        self.sb_model.setText("模型: " + model)
         self.sb_level.setText("纠错: " + LEVEL_LABELS.get(
             cfg.get("refine", {}).get("level", "conservative"), "保守"
         ))
         self.sb_paste.setText("注入: " + PASTE_LABELS.get(
             cfg.get("inject", {}).get("paste_mode", "auto"), "自动"
         ))
-        self.top.model_chip.setText(model[:24])
+        self.top.model_chip.setText("本地模型 · " + model)
 
     def _set_page(self, name):
         self.stack.setCurrentWidget(self.pages[name])
@@ -1379,18 +1419,18 @@ class MainWindow(QWidget):
 
     def set_status(self, state, text=""):
         labels = {
-            "IDLE": ("就绪 / READY", SECONDARY),
-            "RECORDING": ("录音中 / RECORDING", PRIMARY),
-            "TRANSCRIBING": ("转写中 / ASR", TERTIARY),
-            "REFINING": ("纠错中 / REFINE", SECONDARY),
-            "INJECTING": ("写入中 / INJECT", PRIMARY),
-            "ERROR": ("错误 / ERROR", ERROR),
+            "IDLE": ("就绪", SECONDARY),
+            "RECORDING": ("录音中", PRIMARY),
+            "TRANSCRIBING": ("转写中", TERTIARY),
+            "REFINING": ("纠错中", SECONDARY),
+            "INJECTING": ("写入中", PRIMARY),
+            "ERROR": ("错误", ERROR),
         }
         label, color = labels.get(state, (state, PRIMARY))
         if state == "IDLE" and not model_ready(load_cfg()):
-            label, color = "模型未就绪 / NO MODEL", TERTIARY
+            label, color = "模型未就绪", TERTIARY
         self.top.status_text.setText(label)
-        self.top.status_dot.setStyleSheet("color: %s; font-size: 9px;" % color)
+        self.top.status_dot.setStyleSheet("color: %s; font-size: 13px;" % color)
         self.home.set_status(state, text)
 
     def refresh_data(self, cfg=None):

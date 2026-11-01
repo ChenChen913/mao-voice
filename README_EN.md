@@ -81,11 +81,20 @@ Up front: this is neither the most feature-complete nor the most accurate option
 
 Besides the tray-and-hotkey app, the repo now includes a PySide6 client shell restyled after the `code.html` prototype into a dark instrument look: a main window (Home / History / Dictionary / Settings), the floating capsule and a tray icon, all reusing the existing engine.
 
-| Home | History |
-| --- | --- |
-| ![Client home](docs/images/client-home.png) | ![Client history](docs/images/client-history.png) |
-| **Settings** | **Dictionary** |
-| ![Client settings](docs/images/client-settings.png) | ![Client dictionary](docs/images/client-dictionary.png) |
+![Client home](docs/images/client-home.png)
+
+<details>
+<summary>More screens: History / Settings / Dictionary / Recording capsule</summary>
+
+![Client history](docs/images/client-history.png)
+
+![Client settings](docs/images/client-settings.png)
+
+![Client dictionary](docs/images/client-dictionary.png)
+
+![Recording capsule](docs/images/client-overlay-recording.png)
+
+</details>
 
 ```powershell
 cd voice_ime
