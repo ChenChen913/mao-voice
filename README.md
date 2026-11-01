@@ -4,7 +4,7 @@
   <b>简体中文</b> | <a href="./README_EN.md">English</a>
   <br><br>
   <a href="https://github.com/ChenChen913/mao-voice/actions/workflows/ci.yml"><img src="https://github.com/ChenChen913/mao-voice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/ChenChen913/mao-voice/releases"><img src="https://img.shields.io/badge/version-5.19.0-blue.svg" alt="Version"></a>
+  <a href="https://github.com/ChenChen913/mao-voice/releases"><img src="https://img.shields.io/badge/version-5.19.1-blue.svg" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
 </p>
 

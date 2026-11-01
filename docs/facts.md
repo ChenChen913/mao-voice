@@ -6,7 +6,7 @@
 ## A. 可自动提取的事实
 
 1. **项目类型**：Windows 桌面 AI 语音输入工具（个人效率工具 / 实验性项目）
-2. **版本号**：`voice_ime/version.py` → `5.19.0`（启动日志、设置标题、托盘提示均取此处）
+2. **版本号**：`voice_ime/version.py` → `5.19.1`（启动日志、设置标题、托盘提示均取此处）
 3. **主语言 / 运行时 / 最低版本**：Python；doctor.py 要求 >= 3.10，CI 在 3.12 / 3.13 测试（`.github/workflows/ci.yml` matrix）
 4. **安装命令**：`pip install -r voice_ime/requirements.txt`（requirements.txt 存在，2026-11-01 实跑 doctor 通过）
 5. **运行命令**：`python main.py`（voice_ime/main.py）或双击 `voice_ime/启动.bat`

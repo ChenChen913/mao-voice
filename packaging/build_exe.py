@@ -20,6 +20,15 @@ import os
 import shutil
 import sys
 
+# CI（英文 Windows）的 stdout 默认是 cp1252，直接打印中文会抛 UnicodeEncodeError，
+# 导致构建明明成功却让整个 step 以失败退出（GitHub Actions 上实际踩到过）。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "voice_ime")
 ICON = os.path.join(ROOT, "packaging", "mao_voice.ico")
