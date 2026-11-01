@@ -7,7 +7,6 @@
 import logging
 import os
 import sys
-import threading
 
 from PySide6.QtCore import QSharedMemory
 from PySide6.QtWidgets import QApplication, QDialog
@@ -111,7 +110,7 @@ def main():
             print("[警告] " + message)
 
     if hasattr(app_logic.asr, "warmup"):
-        threading.Thread(target=app_logic.asr.warmup, daemon=True).start()
+        app_logic._warmup_engine()
 
     listeners = _setup_hotkeys(app_logic, cfg)
 
