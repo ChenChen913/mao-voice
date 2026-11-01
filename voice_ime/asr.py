@@ -316,6 +316,13 @@ class WhisperEngine:
                         self.model_name
                     )
                 )
+            if looks_like_local_path(self.model_name) and not os.path.isfile(
+                os.path.join(self.model_name, "model.bin")
+            ):
+                raise RuntimeError(
+                    "模型目录无效：{} 缺少 model.bin，可能不是 faster-whisper "
+                    "(CTranslate2) 模型".format(self.model_name)
+                )
             from faster_whisper import WhisperModel
             if self._gpu_disabled or not _cuda_libs_ready():
                 # 已回退过 CPU 或 CUDA 运行库缺失：直接走 CPU，

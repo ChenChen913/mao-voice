@@ -25,6 +25,13 @@ def test_load_missing_path_raises_friendly_message(tmp_path):
 
 
 
+def test_load_invalid_model_dir_without_model_bin(tmp_path):
+    """目录存在但不是 CTranslate2 模型时，给出可读错误。"""
+    engine = WhisperEngine(model=str(tmp_path))
+    with pytest.raises(RuntimeError, match="model.bin"):
+        engine._load()
+
+
 def test_transcribe_serialized_with_infer_lock(monkeypatch):
     """多个线程并发 transcribe 时，_transcribe_once 必须串行执行（最大并发数=1）。"""
     engine = WhisperEngine(model="small")
