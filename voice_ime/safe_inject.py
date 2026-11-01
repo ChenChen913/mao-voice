@@ -198,10 +198,16 @@ class INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("union", _INPUT_UNION)]
 
 
-user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
-user32.SendInput.restype = wintypes.UINT
+# v5.19：SendInput 必须用独立的 WinDLL 实例声明参数类型。
+# pynput 的键盘模拟同样调用 ctypes.windll.user32.SendInput，但用的是它自己的
+# INPUT 结构体；在共享函数对象上覆盖 argtypes 会让 pynput 的调用抛
+# `expected LP_INPUT instance instead of pointer to INPUT`，导致 Ctrl+V 注入全挂。
+_user32_input = ctypes.WinDLL("user32")
+_user32_input.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+_user32_input.SendInput.restype = wintypes.UINT
 
 GA_ROOT = 2  # GetAncestor: 获取根所有者窗口
+
 
 # --- advapi32 ---
 advapi32 = ctypes.windll.advapi32
@@ -405,45 +411,80 @@ def _category_of_formats(
     return "、".join(sorted(categories)) if categories else "(空)"
 
 
+def _read_clipboard_text():
+    """读取当前剪贴板的 CF_UNICODETEXT。
+
+    返回 None 表示剪贴板打不开（被其他进程占用）；返回空串表示剪贴板里没有文本。
+    只读不写，不会改变剪贴板序列号。
+    """
+    if not _open_clipboard():
+        return None
+    try:
+        hdata = user32.GetClipboardData(CF_UNICODETEXT)
+        if not hdata:
+            return ""
+        ptr = kernel32.GlobalLock(hdata)
+        if not ptr:
+            return None
+        try:
+            return ctypes.wstring_at(ptr)
+        finally:
+            kernel32.GlobalUnlock(hdata)
+    finally:
+        user32.CloseClipboard()
+
+
 def _restore_clipboard_from_saved(
     saved: list[tuple[int, wintypes.HANDLE]],
     original_seq: int,
+    expected_text=None,
 ) -> tuple[bool, str]:
     """
     用之前保存的数据恢复剪贴板内容。
     返回 (是否成功, 原因/状态描述)。
 
-    恢复前会通过 GetClipboardSequenceNumber 判断剪贴板是否在注入期间
+    恢复前通过 GetClipboardSequenceNumber 判断剪贴板是否在注入期间
     被用户或其他进程修改：如果序列号未变，说明剪贴板内容仍是我们设置的文本，
     可以安全恢复；如果变了，说明有外部干预，此时不应盲目空剪贴板，
     避免覆盖用户在此期间的新复制内容。
+
+    v5.19：序列号变化不一定代表有人覆盖剪贴板。目标应用粘贴时请求
+    额外剪贴板格式（CF_TEXT/CF_OEMTEXT 等）会让 Windows 合成格式并
+    抬高序列号，而内容其实仍是我们注入的文本。传入 expected_text 时，
+    序列号变化后再比对一次当前文本：文本仍是注入内容就照常恢复，
+    只有真正被外部复制覆盖才跳过。这样既保住安全性，也不会因为
+    「应用读了一下剪贴板」就白白丢掉恢复机会（真机复现过）。
     """
     if not saved:
-        # 原剪贴板为空：直接清空我们设置的文本即可
+        # 原剪贴板为空：清空我们设置的文本即可（外部改过则保留用户内容）
+        current_seq = user32.GetClipboardSequenceNumber()
+        still_ours = current_seq == original_seq or (
+            expected_text is not None and _read_clipboard_text() == expected_text
+        )
+        if not still_ours:
+            return True, "原剪贴板为空，检测到外部新内容，已保留用户复制的内容"
         if not _open_clipboard():
             return False, "原剪贴板为空，但无法打开剪贴板清除注入文本"
         try:
-            current_seq = user32.GetClipboardSequenceNumber()
-            # 如果序列号没变（仍等于注入后 set_seq），说明还是我们设的文本，可安全清空
-            if current_seq == original_seq:
-                user32.EmptyClipboard()
-            # 否则用户在此期间做了复制，保持不动更安全
+            user32.EmptyClipboard()
         finally:
             user32.CloseClipboard()
         return True, "原剪贴板为空，已清空注入文本（或保留用户新复制内容）"
 
     current_seq = user32.GetClipboardSequenceNumber()
 
-    # ---- 关键决策：序列号变了说明有外部修改 ----
+    # ---- 关键决策：序列号变了，再确认内容是否仍是我们注入的文本 ----
     if current_seq != original_seq:
-        category = _category_of_formats(saved)
-        return False, (
-            f"剪贴板恢复已跳过：注入期间剪贴板被外部修改"
-            f"（原序列号={original_seq}，当前序列号={current_seq}），"
-            f"原内容[{category}]已无法安全恢复"
-        )
+        still_ours = expected_text is not None and _read_clipboard_text() == expected_text
+        if not still_ours:
+            category = _category_of_formats(saved)
+            return False, (
+                f"剪贴板恢复已跳过：注入期间剪贴板被外部修改"
+                f"（原序列号={original_seq}，当前序列号={current_seq}），"
+                f"原内容[{category}]已无法安全恢复"
+            )
 
-    # 序列号一致，安全恢复
+    # 序列号一致（或变化但内容仍是我们注入的文本），安全恢复
     if not _open_clipboard():
         category = _category_of_formats(saved)
         return False, (
@@ -625,7 +666,7 @@ def _inject_unicode(text):
         item.union.ki = KEYBDINPUT(0, code, flags, 0, None)
         inputs.append(item)
     arr = (INPUT * len(inputs))(*inputs)
-    sent = user32.SendInput(len(arr), arr, ctypes.sizeof(INPUT))
+    sent = _user32_input.SendInput(len(arr), arr, ctypes.sizeof(INPUT))
     if sent != len(arr):
         err = kernel32.GetLastError()
         return False, "Unicode 直注未完成（SendInput {}/{}，GetLastError={}）".format(
@@ -817,12 +858,12 @@ def inject(
     except Exception as e:
         # 按键模拟异常（极少发生，如 pynput 后端初始化失败）
         # 无论粘贴是否成功，都要尝试恢复剪贴板
-        _restore_clipboard_from_saved(saved, set_seq)
+        _restore_clipboard_from_saved(saved, set_seq, text)
         _free_saved_clipboard(saved)
         return False, f"按键模拟失败: {e}"
 
     # ---- 步骤 4：恢复原剪贴板 ----
-    restored, restore_msg = _restore_clipboard_from_saved(saved, set_seq)
+    restored, restore_msg = _restore_clipboard_from_saved(saved, set_seq, text)
 
     # 释放保存的数据（恢复成功后句柄所有权已转给系统，无需再释放；
     # 恢复失败时这些是备份副本，需要手动释放）

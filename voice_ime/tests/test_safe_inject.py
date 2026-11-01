@@ -34,7 +34,7 @@ def _mock_full_inject(monkeypatch):
     monkeypatch.setattr(safe_inject, "_save_all_clipboard_formats", lambda: (0, []))
     monkeypatch.setattr(safe_inject, "_open_clipboard", lambda *a: True)
     monkeypatch.setattr(safe_inject, "_restore_clipboard_from_saved",
-                        lambda saved, seq: (True, "剪贴板已成功恢复"))
+                        lambda saved, seq, *a: (True, "剪贴板已成功恢复"))
     monkeypatch.setattr(safe_inject.user32, "EmptyClipboard", lambda: True)
     monkeypatch.setattr(safe_inject.user32, "SetClipboardData", lambda f, h: 1)
     monkeypatch.setattr(safe_inject.user32, "GetClipboardSequenceNumber", lambda: 1)
@@ -130,6 +130,35 @@ def test_restore_skipped_when_sequence_changed(monkeypatch):
     assert saved == [(safe_inject.CF_UNICODETEXT, 11)]
 
 
+def test_restore_proceeds_when_content_still_injected(monkeypatch):
+    """v5.19：序列号因格式合成变化，但剪贴板内容仍是注入文本 → 照常恢复。"""
+    saved = [(safe_inject.CF_UNICODETEXT, 11)]
+    monkeypatch.setattr(safe_inject.user32, "GetClipboardSequenceNumber", lambda: 999)
+    monkeypatch.setattr(safe_inject, "_read_clipboard_text", lambda: "注入文本")
+    monkeypatch.setattr(safe_inject, "_open_clipboard", lambda *a: True)
+    monkeypatch.setattr(safe_inject.user32, "EmptyClipboard", lambda: True)
+    monkeypatch.setattr(safe_inject.user32, "SetClipboardData", lambda fmt, h: True)
+
+    ok, msg = safe_inject._restore_clipboard_from_saved(saved, 100, expected_text="注入文本")
+
+    assert ok is True
+    assert "成功恢复" in msg
+    assert saved == [], "句柄所有权已转移给系统，saved 必须清空"
+
+
+def test_restore_skips_when_content_replaced(monkeypatch):
+    """v5.19：序列号变化且当前文本已不是注入内容（用户新复制）→ 仍然跳过恢复。"""
+    saved = [(safe_inject.CF_UNICODETEXT, 11)]
+    monkeypatch.setattr(safe_inject.user32, "GetClipboardSequenceNumber", lambda: 999)
+    monkeypatch.setattr(safe_inject, "_read_clipboard_text", lambda: "用户新复制的内容")
+
+    ok, msg = safe_inject._restore_clipboard_from_saved(saved, 100, expected_text="注入文本")
+
+    assert ok is False
+    assert "外部修改" in msg
+    assert saved == [(safe_inject.CF_UNICODETEXT, 11)]
+
+
 def test_restore_partial_failure_frees_remaining_and_clears(monkeypatch):
     """D1：恢复中途 SetClipboardData 失败 → 剩余句柄释放、saved 清空（防 double-free）。"""
     saved = [(safe_inject.CF_UNICODETEXT, 11), (safe_inject.CF_UNICODETEXT, 12)]
@@ -210,6 +239,25 @@ def test_inject_unicode_channel_skips_clipboard(monkeypatch):
     assert ok is True and "Unicode 直注" in msg
     assert sent == ["你好"]
     assert clipboard_calls == [], "Unicode 通道不应打开剪贴板"
+
+
+def test_sendinput_argtypes_not_polluting_pynput():
+    """v5.19：SendInput 的参数声明必须落在独立 WinDLL 实例上。
+
+    pynput 的键盘模拟同样调用 ctypes.windll.user32.SendInput，且持有自己的
+    INPUT 结构体；本模块若在共享函数对象上覆盖 argtypes，pynput 的 Ctrl+V
+    调用会抛 `expected LP_INPUT instance instead of pointer to INPUT`，
+    导致所有非终端窗口的注入失败（真机复现过）。
+    """
+    import ctypes
+
+    shared = ctypes.windll.user32.SendInput
+    # 共享函数对象可能被其他库声明为通用 (c_ulong, c_void_p, c_long)，
+    # 关键是不能是「本模块的 INPUT 结构体」——那会让 pynput 的调用类型不匹配。
+    if shared.argtypes is not None:
+        assert shared.argtypes[1] is not ctypes.POINTER(safe_inject.INPUT)
+    assert safe_inject._user32_input is not ctypes.windll.user32
+    assert safe_inject._user32_input.SendInput.argtypes[1] == ctypes.POINTER(safe_inject.INPUT)
 
 
 def test_inject_auto_uses_unicode_for_terminal(monkeypatch):
