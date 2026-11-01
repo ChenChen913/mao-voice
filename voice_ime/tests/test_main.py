@@ -336,7 +336,7 @@ def test_learn_rules_accumulate_on_success(tmp_path, monkeypatch):
     app.learn = FakeLearn()
     app.refiner = FakeRefiner()
     app.refiner.enabled = True
-    app.refiner.refine = lambda raw, words_block="": raw + "！"
+    app.refiner.refine = lambda raw, level=None, words_block="": raw + "！"
     app.asr.transcribe = lambda audio: "你好"
     monkeypatch.setattr(
         main.safe_inject, "inject", lambda *a, **k: (True, "ok")
@@ -363,7 +363,9 @@ def test_learn_block_merged_into_words_block(tmp_path, monkeypatch):
     seen = {}
     app.refiner = FakeRefiner()
     app.refiner.enabled = True
-    app.refiner.refine = lambda raw, words_block="": seen.update(words_block=words_block) or raw
+    app.refiner.refine = lambda raw, level=None, words_block="": (
+        seen.update(words_block=words_block) or raw
+    )
     app.asr.transcribe = lambda audio: "你好"
     monkeypatch.setattr(
         main.safe_inject, "inject", lambda *a, **k: (True, "ok")

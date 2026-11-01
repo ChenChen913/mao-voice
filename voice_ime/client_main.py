@@ -12,14 +12,10 @@ from PySide6.QtCore import QSharedMemory
 from PySide6.QtWidgets import QApplication, QDialog
 
 import autostart
+import theme_pref
 from asr import missing_local_model
 from config import CONFIG_PATH, clamp_number, ensure_defaults, load_config, save_config
 from hotkey import HotkeyListener, parse_key
-from qt_ui.client_app import ClientApp
-from qt_ui.main_window import MainWindow
-from qt_ui.overlay import QtOverlay
-from qt_ui.root import QtRoot
-from qt_ui.tray import QtTray, make_icon
 from version import __version__
 
 
@@ -80,6 +76,16 @@ def main():
     qapp.setApplicationName("mao-voice")
     qapp.setQuitOnLastWindowClosed(False)
 
+    # 主题必须在导入 qt_ui 之前确定：各页面在导入时读取配色 token
+    os.environ["MAO_THEME"] = theme_pref.resolve(
+        cfg.get("ui", {}).get("theme", "dark")
+    )
+    from qt_ui.client_app import ClientApp
+    from qt_ui.main_window import MainWindow
+    from qt_ui.overlay import QtOverlay
+    from qt_ui.root import QtRoot
+    from qt_ui.tray import QtTray, make_icon
+
     if first_run:
         from qt_ui.wizard import FirstRunWizard
         wizard = FirstRunWizard(cfg)
@@ -103,6 +109,12 @@ def main():
     window.history_clear_requested.connect(app_logic.clear_history)
     window.history_inject_requested.connect(app_logic.reinject_text)
     window.dictionary_changed.connect(app_logic.reload_dictionary)
+
+    def _on_modes_saved(payload):
+        ok, message = app_logic.apply_modes(payload)
+        window.modes_page.show_result(ok, message)
+
+    window.modes_saved.connect(_on_modes_saved)
 
     if cfg.get("ui", {}).get("autostart"):
         ok, message = autostart.set_enabled(True)

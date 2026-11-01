@@ -102,7 +102,7 @@ def test_pipeline_writes_history_and_learn_only_on_success(tmp_path, monkeypatch
     hist, learned = [], []
 
     class FakeHistory:
-        def add(self, raw, final, duration_s=None):
+        def add(self, raw, final, duration_s=None, app=None):
             hist.append((raw, final, duration_s))
 
     class FakeLearn:

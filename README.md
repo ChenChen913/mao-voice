@@ -8,7 +8,7 @@
   <b>简体中文</b> | <a href="./README_EN.md">English</a>
   <br><br>
   <a href="https://github.com/ChenChen913/mao-voice/actions/workflows/ci.yml"><img src="https://github.com/ChenChen913/mao-voice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/ChenChen913/mao-voice/releases"><img src="https://img.shields.io/badge/version-5.19.1-blue.svg" alt="Version"></a>
+  <a href="https://github.com/ChenChen913/mao-voice/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
 </p>
 
@@ -77,26 +77,32 @@ flowchart LR
 | 讯飞 / 搜狗等商业输入法 | 全平台输入法 | 云端为主 | 输入法内语音 | 免部署、识别强；需安装输入法，语音要上传云端 |
 | 智谱 / 豆包 / Typeless 等 AI 输入法 | 桌面/移动 AI 输入法 | 云端 | 语音转写 + LLM 润色 | 体验完整但依赖订阅与网络；本项目可离线、可换模型与 API |
 
-## 客户端预览（开发中）
+## 客户端（6.0.0）
 
 除了托盘 + 热键的原有形态，仓库里新增了一个 PySide6 客户端外壳，视觉按 `code.html` 原型重做成深色仪表风：主窗口（首页 / 历史 / 词库 / 设置）、悬浮胶囊与托盘，直接复用现有引擎。
 
-客户端已包含**首次启动向导**（隐私说明 / 麦克风试录 / 模型选择 / 热键与 Key，可跳过），**词库可新增、编辑、删除、导入导出**，**历史支持重新注入、删除与清空**，设置页可直接**浏览或扫描本机模型并校验四件套**。
+客户端已包含**首次启动向导**（隐私说明 / 麦克风试录 / 模型选择 / 热键与 Key，可跳过），**词库可新增、编辑、删除、导入导出**，**历史支持重新注入、删除与清空**，设置页可直接**浏览或扫描本机模型并校验四件套**；另有**按应用模式**、**使用统计**、**更新检查**与**深色/浅色/跟随系统**主题。
 
 ![客户端首页](docs/images/client-home.png)
 
 <details>
-<summary>更多界面：首次向导 / 历史 / 设置 / 模型设置 / 词库 / 录音胶囊</summary>
+<summary>更多界面：首次向导 / 历史 / 统计 / 模式 / 设置 / 模型 / 词库 / 浅色 / 胶囊</summary>
 
 ![首次启动向导](docs/images/client-wizard.png)
 
 ![客户端历史](docs/images/client-history.png)
+
+![使用统计](docs/images/client-stats.png)
+
+![按应用模式](docs/images/client-modes.png)
 
 ![客户端设置](docs/images/client-settings.png)
 
 ![模型设置](docs/images/client-settings-model.png)
 
 ![客户端词库](docs/images/client-dictionary.png)
+
+![浅色主题](docs/images/client-home-light.png)
 
 ![录音胶囊](docs/images/client-overlay-recording.png)
 
@@ -107,16 +113,16 @@ cd voice_ime
 python client_main.py     # 或双击 启动客户端.bat
 ```
 
-当前状态：主窗口、托盘、胶囊与录音管线已接通；首次向导、词库增删改与历史操作已完成；设置页可保存并立即生效（模型切换重建引擎、热键重载监听、开机自启写入当前用户启动项），诊断信息可一键导出。按应用模式、统计页、更新检查与浅色主题仍属后续计划。Tk 版 `main.py` 仍是稳定入口，两者共用 `config.json`，请不要同时运行。
+当前状态：主窗口、托盘、胶囊与录音管线已接通；首次向导、词库增删改、历史操作、按应用模式、使用统计、更新检查、深浅主题均已完成。设置页可保存并立即生效（模型切换重建引擎、热键重载监听、开机自启写入当前用户启动项），诊断信息可一键导出。音频留存/回放与多语言界面仍属后续计划。Tk 版 `main.py` 仍是稳定入口，两者共用 `config.json`，请不要同时运行。
 
 ## 快速开始
 
 ### 方式一：免安装包（推荐给只想使用的用户）
 
-从 [Releases](https://github.com/ChenChen913/mao-voice/releases) 下载 `mao-voice-windows-x64.zip`（CPU 版，CI 构建），解压后：
+从 [Releases](https://github.com/ChenChen913/mao-voice/releases) 下载 `mao-voice-windows-x64.zip`（Tk 版）或 `mao-voice-client-windows-x64.zip`（Qt 客户端，CPU 版，CI 构建）。客户端首次启动会进入四步向导；解压后：
 
 1. 把 `faster-whisper-small` 或 `medium` 模型目录放进解压目录的 `models/`（模型体积大，不打进安装包）；
-2. 双击 `mao-voice.exe`，首次运行会生成 `config.json`；
+2. 双击 `mao-voice.exe`（客户端版为 `mao-voice-client.exe`），首次运行会生成 `config.json`；
 3. 在 `config.json` 填 `refine.api_key`（可选），或设置 `DEEPSEEK_API_KEY` 环境变量；
 4. 启动后按右 Alt 说话。
 
@@ -200,7 +206,7 @@ python packaging/build_exe.py --client  # 打包 Qt 客户端 exe（预览）
 ```
 
 - 推送到 GitHub 自动跑测试 CI（Windows + Python 3.12/3.13）；打 `v*` tag 触发打包并发布 Release
-- **版本策略**：5.x 是开发期历史编号，5.19.1 是最后一个 5.x；日常提交不再递增版本号，只在发布 Release 时更新。首个客户端正式版从 6.0.0 开始
+- **版本策略**：5.x 是开发期历史编号，5.19.1 是最后一个 5.x；6.0.0 是首个客户端正式版，6.x.0 为功能版本、6.x.y 为修复版本；日常提交不递增版本号，只在发布 Release 时更新
 - 审查与修复过程：[OCR 审查报告](docs/audits/OCR审查报告.md)、[项目审核报告](docs/audits/项目审核报告.md)、[第三轮深度审核](docs/audits/深度审核报告_第三轮_2026-09-28.md)
 - 完整版本历史见[更新记录](docs/更新记录.md)
 

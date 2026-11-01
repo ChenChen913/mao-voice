@@ -6,10 +6,10 @@
 import queue
 import threading
 import time
-import tkinter as tk
 import logging
 import os
 
+import app_modes
 from config import build_words_block, clamp_number, ensure_defaults, load_config, resolve_keys, save_config
 from hotkey import HOTKEY_LABELS, HotkeyListener, parse_key
 from recorder import Recorder
@@ -18,8 +18,6 @@ from refiner import Refiner
 import safe_inject
 from history import HistoryStore
 from learn import LearnedRules, append_learned_block
-from ui import Overlay
-from settings_ui import SettingsWindow, TrayIcon
 from version import __version__
 
 MIN_DURATION = 0.5
@@ -192,6 +190,8 @@ class App:
         save_config(self.cfg)
 
     def _open_settings_impl(self):
+        # 延迟导入 Tk 设置窗口：Qt 客户端复用 App 时不需要加载 tkinter/pystray
+        from settings_ui import SettingsWindow
         if self.settings_win is None or not self.settings_win.root.winfo_exists():
             self.settings_win = SettingsWindow(self)
         else:
@@ -366,11 +366,21 @@ class App:
             words_block = build_words_block()
             # v5.18：高频学习规则拼入词库块（沿用词库的数据定界防注入声明）
             words_block = append_learned_block(words_block, self.learn)
+
+            # 按应用模式：用录音结束时的前台窗口匹配纠错档位与注入方式
+            info = app_modes.window_info(self._target_hwnd)
+            override = app_modes.mode_override(self.cfg.get("modes"), info)
+            app_name = override.get("name") or info.get("exe") or ""
+
             final = raw
             if self.refiner.enabled:
                 self._post("REFINING", "✨ 润色中…")
                 try:
-                    final = self.refiner.refine(raw, words_block=words_block)
+                    final = self.refiner.refine(
+                        raw,
+                        level=override.get("level"),
+                        words_block=words_block,
+                    )
                 except Exception as e:
                     final = raw
                     self._post("ERROR", "润色失败，已输出原始转写：{}".format(e))
@@ -394,7 +404,7 @@ class App:
                 restore_delay_sec=inject_cfg.get("restore_delay_sec", 0.2),
                 expected_hwnd=self._target_hwnd,
                 require_same_focus=inject_cfg.get("require_same_focus", True),
-                paste_mode=inject_cfg.get("paste_mode", "auto"),
+                paste_mode=override.get("paste_mode") or inject_cfg.get("paste_mode", "auto"),
                 terminal_classes=inject_cfg.get("terminal_classes"),
             )
             if not ok:
@@ -406,7 +416,9 @@ class App:
                 print("[剪贴板] " + reason)
             if ok and self.history is not None:
                 try:
-                    self.history.add(raw, final, duration_s=recorder.duration)
+                    self.history.add(
+                        raw, final, duration_s=recorder.duration, app=app_name
+                    )
                 except Exception:
                     logging.exception("写入历史记录失败（已忽略）")
             # v5.18：自学习——把 (原始转写, 润色结果) 差异沉淀为纠错规则
@@ -471,6 +483,11 @@ class App:
 
 
 def main():
+    # Tk 相关依赖延迟到入口再导入：Qt 客户端复用本模块时不加载 tkinter/pystray/Pillow
+    import tkinter as tk
+    from ui import Overlay
+    from settings_ui import TrayIcon
+
     ensure_defaults()
     cfg = load_config()
     model = cfg.get("asr", {}).get("model", "")

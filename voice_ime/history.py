@@ -68,18 +68,21 @@ class HistoryStore:
         for item in read_entries(self.path)[-self.max_entries:]:
             self._items.append(item)
 
-    def add(self, raw, final, duration_s=None):
+    def add(self, raw, final, duration_s=None, app=None):
         with self._lock:
             try:
                 duration = round(duration_s, 1) if duration_s is not None else None
             except (TypeError, ValueError):
                 duration = None  # v5.14：非法时长降级为 None，不影响记录
-            self._items.append({
+            item = {
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "raw": raw,
                 "final": final,
                 "duration_s": duration,
-            })
+            }
+            if app:
+                item["app"] = str(app)
+            self._items.append(item)
             try:
                 self._save_locked()
             except OSError:

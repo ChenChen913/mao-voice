@@ -39,7 +39,12 @@
   "ui": {
     "preview_sec": 1.5,
     "max_chars": 300,
-    "autostart": false
+    "autostart": false,
+    "theme": "dark"
+  },
+  "modes": {
+    "enabled": true,
+    "apps": []
   },
   "inject": {
     "restore_delay_sec": 0.2,

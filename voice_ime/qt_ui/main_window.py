@@ -3,20 +3,21 @@
 import json
 import math
 import os
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QColor, QFont, QFontMetrics, QGuiApplication, QIcon, QMouseEvent, QPainter,
-    QPainterPath, QPen, QPixmap,
+    QColor, QDesktopServices, QFont, QFontMetrics, QGuiApplication, QIcon,
+    QMouseEvent, QPainter, QPainterPath, QPen, QPixmap,
 )
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame,
     QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSizeGrip,
-    QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
-    QWidget,
+    QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+    QSizeGrip, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from autostart import is_enabled as autostart_enabled
@@ -27,13 +28,15 @@ from model_store import (
     cuda_available, resolve_model_path, scan_model_dirs, validate_model_dir,
 )
 from recorder import list_input_devices
+from stats import summarize as summarize_history
 from version import __version__
 from hotkey import HOTKEY_LABELS
 from .theme import (
-    ERROR, FONT_FAMILY, FONT_MONO, OUTLINE, OUTLINE_VARIANT, PRIMARY, RADIUS,
-    RADIUS_SM, SECONDARY, SECONDARY_CONTAINER, STATE_CONFIG, SUCCESS, SURFACE,
-    SURFACE_CONTAINER, SURFACE_HIGH, SURFACE_HIGHEST, SURFACE_LOW,
-    SURFACE_LOWEST, TERTIARY, TEXT, TEXT_VARIANT, asset_path,
+    ERROR, FONT_FAMILY, FONT_MONO, ON_PRIMARY, ON_TERTIARY, OUTLINE,
+    OUTLINE_VARIANT, PRIMARY, PRIMARY_HOVER, RADIUS, RADIUS_SM, SECONDARY,
+    SECONDARY_CONTAINER, STATE_CONFIG, SUCCESS, SURFACE, SURFACE_CONTAINER,
+    SURFACE_HIGH, SURFACE_HIGHEST, SURFACE_LOW, SURFACE_LOWEST, TERTIARY,
+    TERTIARY_HOVER, TEXT, TEXT_VARIANT, asset_path,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,6 +50,7 @@ LEVELS = [("conservative", "保守纠错"), ("light", "轻度规整"), ("polish"
 PASTE_MODES = [("auto", "自动（终端走 Unicode）"), ("ctrl_v", "始终 Ctrl+V"),
                ("unicode", "始终 Unicode 直注")]
 LANGUAGES = [(None, "自动检测（中英混杂）"), ("zh", "固定中文"), ("en", "固定英文")]
+THEMES = [("dark", "深色"), ("light", "浅色"), ("auto", "跟随系统")]
 
 LEVEL_LABELS = dict(LEVELS)
 PASTE_LABELS = dict(PASTE_MODES)
@@ -154,6 +158,13 @@ def make_glyph(kind, color, size=16):
             p.drawLine(int(s * 0.12), int(s * y), int(s * 0.88), int(s * y))
             cx = (0.3, 0.7, 0.45)[i]
             p.drawEllipse(int(s * cx) - 1, int(s * y) - 1, 4, 4)
+    elif kind == "chart":
+        for i, (x, h) in enumerate(((0.22, 0.35), (0.44, 0.6), (0.66, 0.48))):
+            p.drawLine(int(s * x), int(s * 0.85), int(s * x), int(s * 0.85) - int(s * h))
+        p.drawLine(int(s * 0.12), int(s * 0.85), int(s * 0.88), int(s * 0.85))
+    elif kind == "apps":
+        p.drawRoundedRect(int(s * 0.12), int(s * 0.18), int(s * 0.5), int(s * 0.42), 2, 2)
+        p.drawRoundedRect(int(s * 0.38), int(s * 0.4), int(s * 0.5), int(s * 0.42), 2, 2)
     elif kind == "power":
         p.drawArc(int(s * 0.2), int(s * 0.24), int(s * 0.6), int(s * 0.6), 30 * 16, 300 * 16)
         p.drawLine(int(s * 0.5), int(s * 0.12), int(s * 0.5), int(s * 0.5))
@@ -198,6 +209,7 @@ QWidget#Root { background: %(bg)s; color: %(text)s; font-family: "%(font)s"; fon
 QWidget#TopBar { background: %(lowest)s; border-bottom: 1px solid %(outline_variant)s; }
 QWidget#SideBar { background: %(low)s; border-right: 1px solid %(outline_variant)s; }
 QWidget#StatusBar { background: %(lowest)s; border-top: 1px solid %(outline_variant)s; }
+QWidget#SettingsBody { background: %(bg)s; }
 QLabel { background: transparent; color: %(text)s; }
 QLabel#Mono { font-family: "%(mono)s"; font-size: 13px; color: %(outline)s; }
 QLabel#Muted { color: %(muted)s; font-size: 14px; }
@@ -219,10 +231,10 @@ QPushButton#Nav:checked {
     background: %(highest)s; color: %(text)s; border-left: 2px solid %(primary)s;
 }
 QPushButton#Primary {
-    background: %(primary)s; color: #002e6a; border: none; border-radius: %(radius_sm)s;
+    background: %(primary)s; color: %(on_primary)s; border: none; border-radius: %(radius_sm)s;
     padding: 8px 18px; font-size: 14px; font-weight: 600;
 }
-QPushButton#Primary:hover { background: #d8e2ff; }
+QPushButton#Primary:hover { background: %(primary_hover)s; }
 QPushButton#Ghost {
     background: %(container)s; color: %(muted)s; border: 1px solid %(outline_variant)s;
     border-radius: %(radius_sm)s; padding: 7px 14px; font-size: 13px;
@@ -231,10 +243,10 @@ QPushButton#Ghost:hover { background: %(high)s; color: %(text)s; }
 QPushButton#WinBtn { background: transparent; color: %(outline)s; border: none; font-size: 16px; }
 QPushButton#WinBtn:hover { background: %(high)s; color: %(text)s; }
 QPushButton#Record {
-    background: %(primary)s; color: #002e6a; border: none;
+    background: %(primary)s; color: %(on_primary)s; border: none;
     border-radius: %(radius)s; padding: 14px 28px; font-size: 18px; font-weight: 600;
 }
-QPushButton#Record:hover { background: #c4d6ff; }
+QPushButton#Record:hover { background: %(primary_hover)s; }
 QPushButton#Chip {
     background: transparent; color: %(outline)s; border: 1px solid transparent;
     border-radius: %(radius_sm)s; padding: 4px 11px; font-size: 13px;
@@ -248,11 +260,14 @@ QLineEdit, QComboBox, QDoubleSpinBox {
 QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border-color: %(primary)s; }
 QComboBox QAbstractItemView { background: %(low)s; color: %(text)s; selection-background-color: %(high)s; }
 QCheckBox { color: %(text)s; spacing: 10px; font-size: 14px; }
+QProgressBar { background: %(container)s; border: 1px solid %(outline_variant)s;
+    border-radius: 4px; max-height: 12px; text-align: center; color: %(muted)s; }
+QProgressBar::chunk { background: %(primary)s; border-radius: 3px; }
 QListWidget { background: transparent; border: none; outline: none; font-size: 14px; }
 QListWidget::item { padding: 9px 10px; border-radius: %(radius_sm)s; color: %(text)s; }
 QListWidget::item:hover { background: %(container)s; }
 QListWidget::item:selected { background: %(highest)s; color: %(text)s; }
-QTableWidget { background: %(lowest)s; border: 1px solid %(outline_variant)s; border-radius: %(radius)s; gridline-color: %(outline_variant)s; font-size: 14px; }
+QTableWidget { background: %(lowest)s; color: %(text)s; border: 1px solid %(outline_variant)s; border-radius: %(radius)s; gridline-color: %(outline_variant)s; font-size: 14px; }
 QHeaderView::section { background: %(low)s; color: %(outline)s; border: none; padding: 10px 12px; font-size: 13px; }
 QTableWidget::item { padding: 6px 10px; }
 QTextEdit, QPlainTextEdit { background: %(lowest)s; color: %(text)s; border: 1px solid %(outline_variant)s; border-radius: %(radius_sm)s; }
@@ -264,8 +279,9 @@ QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
     "bg": SURFACE, "lowest": SURFACE_LOWEST, "low": SURFACE_LOW,
     "container": SURFACE_CONTAINER, "high": SURFACE_HIGH, "highest": SURFACE_HIGHEST,
     "outline": OUTLINE, "outline_variant": OUTLINE_VARIANT, "text": TEXT,
-    "muted": TEXT_VARIANT, "primary": PRIMARY, "radius": RADIUS,
-    "radius_sm": RADIUS_SM, "font": FONT_FAMILY, "mono": FONT_MONO,
+    "muted": TEXT_VARIANT, "primary": PRIMARY, "on_primary": ON_PRIMARY,
+    "primary_hover": PRIMARY_HOVER, "radius": RADIUS, "radius_sm": RADIUS_SM,
+    "font": FONT_FAMILY, "mono": FONT_MONO,
 }
 
 
@@ -345,10 +361,16 @@ class StatBox(QFrame):
         lay.setSpacing(3)
         t = QLabel(title)
         t.setObjectName("Mono")
-        v = QLabel("{} {}".format(value, unit).strip())
-        v.setStyleSheet("font-size: 22px; font-weight: 600; color: %s; font-family: '%s';" % (color, FONT_MONO))
+        self._value = QLabel("{} {}".format(value, unit).strip())
+        self._value.setStyleSheet(
+            "font-size: 22px; font-weight: 600; color: %s; font-family: '%s';"
+            % (color, FONT_MONO)
+        )
         lay.addWidget(t)
-        lay.addWidget(v)
+        lay.addWidget(self._value)
+
+    def set_value(self, value, unit=""):
+        self._value.setText("{} {}".format(value, unit).strip())
 
 
 # --------------------------------------------------------------------------
@@ -409,7 +431,7 @@ class HomePage(QWidget):
         self.record_btn = QPushButton("开始说话")
         self.record_btn.setObjectName("Record")
         self.record_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.record_btn.setIcon(make_glyph("mic", "#002e6a", 22))
+        self.record_btn.setIcon(make_glyph("mic", ON_PRIMARY, 22))
         self.record_btn.setIconSize(QSize(22, 22))
         self.record_btn.clicked.connect(self.record_clicked)
         center.addWidget(self.record_btn)
@@ -484,8 +506,8 @@ class HomePage(QWidget):
     def _apply_record_style(self, recording):
         """空闲是主色按钮；录音中切成暖色「结束并写入」，让状态一眼可辨。"""
         bg, fg, hover = (
-            (TERTIARY, "#3a1a00", "#ffd0ad") if recording
-            else (PRIMARY, "#002e6a", "#c4d6ff")
+            (TERTIARY, ON_TERTIARY, TERTIARY_HOVER) if recording
+            else (PRIMARY, ON_PRIMARY, PRIMARY_HOVER)
         )
         self.record_btn.setStyleSheet(
             "QPushButton#Record { background: %s; color: %s; border: none;"
@@ -546,8 +568,7 @@ class HomePage(QWidget):
             self.recent_box.addStretch(1)
 
     def _set_stat(self, box, value, unit=""):
-        label = box.findChildren(QLabel)[-1]
-        label.setText("{} {}".format(value, unit).strip())
+        box.set_value(value, unit)
 
     def _model_text(self, cfg):
         if not self._model_ok:
@@ -810,6 +831,425 @@ class HistoryPage(QWidget):
         self.detail_lay.addWidget(privacy)
         self.detail_lay.addStretch(1)
 
+
+
+# --------------------------------------------------------------------------
+# 页面：统计
+# --------------------------------------------------------------------------
+
+class DailyBarChart(QWidget):
+    """近 7 天字数柱状图（无第三方图表依赖）。"""
+
+    def __init__(self):
+        super().__init__()
+        self._data = []
+        self.setMinimumHeight(200)
+
+    def set_data(self, data):
+        self._data = list(data or [])
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect()
+        if not self._data:
+            p.setPen(QColor(OUTLINE))
+            p.setFont(QFont(FONT_FAMILY, 12))
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "暂无数据")
+            return
+        left, right, top, bottom = 18, 18, 30, 38
+        width = max(1, rect.width() - left - right)
+        height = max(1, rect.height() - top - bottom)
+        values = [value for _label, value in self._data]
+        max_value = max(values + [1])
+        slot = width / len(self._data)
+        bar_w = max(10, min(46, int(slot * 0.5)))
+        for i, (label, value) in enumerate(self._data):
+            x = left + slot * i + (slot - bar_w) / 2
+            h = max(2, int(height * value / max_value)) if value else 2
+            y = top + height - h
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(PRIMARY if value else SURFACE_HIGHEST))
+            p.drawRoundedRect(
+                QRectF(x, y, bar_w, h), 6, 6
+            )
+            if value:
+                p.setPen(QColor(TEXT_VARIANT))
+                p.setFont(QFont(FONT_MONO, 11))
+                p.drawText(
+                    QRectF(x - 10, y - 26, bar_w + 20, 22),
+                    Qt.AlignmentFlag.AlignCenter, str(value),
+                )
+            p.setPen(QColor(OUTLINE))
+            p.setFont(QFont(FONT_FAMILY, 11))
+            p.drawText(
+                QRectF(x - 18, top + height + 10, bar_w + 36, 24),
+                Qt.AlignmentFlag.AlignCenter, label,
+            )
+
+
+class StatsPage(QWidget):
+    def __init__(self):
+        super().__init__()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(14)
+
+        head = QHBoxLayout()
+        title = QLabel("使用统计")
+        title.setObjectName("H1")
+        desc = QLabel("数据来自本机 history.json；开启历史记录后开始累计。")
+        desc.setObjectName("Muted")
+        head.addWidget(title)
+        head.addStretch(1)
+        head.addWidget(desc)
+        lay.addLayout(head)
+
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        self.stat_chars = StatBox("累计转写", "0", "字")
+        self.stat_time = StatBox("录音时长", "0", "分钟", SECONDARY)
+        self.stat_saved = StatBox("节省击键", "0", "分钟", SECONDARY)
+        self.stat_entries = StatBox("记录条数", "0", "条")
+        grid.addWidget(self.stat_chars, 0, 0)
+        grid.addWidget(self.stat_time, 0, 1)
+        grid.addWidget(self.stat_saved, 1, 0)
+        grid.addWidget(self.stat_entries, 1, 1)
+        lay.addLayout(grid)
+
+        body = QHBoxLayout()
+        body.setSpacing(10)
+        chart_card = QFrame()
+        chart_card.setObjectName("Card")
+        cl = QVBoxLayout(chart_card)
+        cl.setContentsMargins(16, 12, 16, 12)
+        cl.setSpacing(6)
+        ch = QHBoxLayout()
+        ct = QLabel("近 7 天字数")
+        ct.setObjectName("H2")
+        self.chart_hint = QLabel("最近 7 天")
+        self.chart_hint.setObjectName("Mono")
+        ch.addWidget(ct)
+        ch.addStretch(1)
+        ch.addWidget(self.chart_hint)
+        cl.addLayout(ch)
+        self.chart = DailyBarChart()
+        cl.addWidget(self.chart, 1)
+        body.addWidget(chart_card, 7)
+
+        apps_card = QFrame()
+        apps_card.setObjectName("Card")
+        al = QVBoxLayout(apps_card)
+        al.setContentsMargins(16, 12, 16, 12)
+        al.setSpacing(8)
+        at = QLabel("按应用分布")
+        at.setObjectName("H2")
+        al.addWidget(at)
+        self.apps_box = QVBoxLayout()
+        self.apps_box.setSpacing(8)
+        al.addLayout(self.apps_box)
+        al.addStretch(1)
+        body.addWidget(apps_card, 5)
+        lay.addLayout(body, 1)
+
+        self.load_stats()
+
+    def _clear_apps(self):
+        while self.apps_box.count():
+            item = self.apps_box.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def load_stats(self):
+        summary = summarize_history(load_history())
+        chars = summary["total_chars"]
+        minutes = summary["total_seconds"] / 60
+        self.stat_chars.set_value(str(chars), "字")
+        self.stat_time.set_value(
+            "{:.1f}".format(minutes) if minutes else "0", "分钟"
+        )
+        self.stat_saved.set_value(str(summary["saved_minutes"]), "分钟")
+        self.stat_entries.set_value(str(summary["total_entries"]), "条")
+        self.chart.set_data(summary["daily"])
+        self.chart_hint.setText(
+            "最近 7 天 · {} 字".format(sum(x for _d, x in summary["daily"]))
+        )
+        self._clear_apps()
+        apps = summary["apps"]
+        if not apps:
+            empty = QLabel("开启历史记录并说几句后，这里会显示按应用分布。")
+            empty.setObjectName("Muted")
+            empty.setWordWrap(True)
+            self.apps_box.addWidget(empty)
+            return
+        max_chars = max(chars for _name, chars in apps) or 1
+        for name, count in apps[:6]:
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(8)
+            label = QLabel(elide(name, 140, QFont(FONT_FAMILY, 14)))
+            label.setFixedWidth(150)
+            bar = QProgressBar()
+            bar.setRange(0, max_chars)
+            bar.setValue(count)
+            bar.setTextVisible(False)
+            value = QLabel("{} 字".format(count))
+            value.setObjectName("Mono")
+            rl.addWidget(label)
+            rl.addWidget(bar, 1)
+            rl.addWidget(value)
+            self.apps_box.addWidget(row)
+        if len(apps) > 6:
+            more = QLabel("另有 {} 个应用未显示".format(len(apps) - 6))
+            more.setObjectName("Mono")
+            self.apps_box.addWidget(more)
+
+
+# --------------------------------------------------------------------------
+# 页面：按应用模式
+# --------------------------------------------------------------------------
+
+class ModeDialog(QDialog):
+    def __init__(self, parent, title, mode=None):
+        super().__init__(parent)
+        mode = mode or {}
+        self.setObjectName("Root")
+        host = parent.window() if parent is not None else None
+        if host is not None and host.styleSheet():
+            self.setStyleSheet(host.styleSheet())
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setMinimumWidth(560)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 22, 24, 22)
+        lay.setSpacing(10)
+        heading = QLabel(title)
+        heading.setObjectName("H1")
+        lay.addWidget(heading)
+
+        lay.addWidget(_field_label("程序 exe（如 code.exe）"))
+        self.exe = QLineEdit(str(mode.get("exe") or ""))
+        self.exe.setPlaceholderText("code.exe / cursor.exe / wechat.exe")
+        lay.addWidget(self.exe)
+
+        lay.addWidget(_field_label("窗口类名（可选，exe 为空时使用）"))
+        self.window_class = QLineEdit(str(mode.get("class") or ""))
+        self.window_class.setPlaceholderText("例如 CASCADIA_HOSTING_WINDOW_CLASS")
+        lay.addWidget(self.window_class)
+
+        lay.addWidget(_field_label("显示名"))
+        self.name = QLineEdit(str(mode.get("name") or ""))
+        self.name.setPlaceholderText("例如 VS Code")
+        lay.addWidget(self.name)
+
+        lay.addWidget(_field_label("纠错档位"))
+        self.level = self._combo([("", "跟随全局")] + LEVELS, mode.get("level"))
+        lay.addWidget(self.level)
+
+        lay.addWidget(_field_label("注入方式"))
+        self.paste = self._combo(
+            [("", "跟随全局")] + PASTE_MODES, mode.get("paste_mode")
+        )
+        lay.addWidget(self.paste)
+
+        row = QHBoxLayout()
+        row.addStretch(1)
+        cancel = QPushButton("取消")
+        cancel.setObjectName("Ghost")
+        cancel.clicked.connect(self.reject)
+        ok = QPushButton("确定")
+        ok.setObjectName("Primary")
+        ok.clicked.connect(self.accept)
+        row.addWidget(cancel)
+        row.addWidget(ok)
+        lay.addLayout(row)
+
+    @staticmethod
+    def _combo(values, current):
+        combo = QComboBox()
+        for key, label in values:
+            combo.addItem(label, key)
+        idx = combo.findData(current)
+        combo.setCurrentIndex(max(0, idx))
+        return combo
+
+    def values(self):
+        return {
+            "exe": self.exe.text().strip(),
+            "class": self.window_class.text().strip(),
+            "name": self.name.text().strip(),
+            "level": self.level.currentData(),
+            "paste_mode": self.paste.currentData(),
+        }
+
+
+class ModesPage(QWidget):
+    save_requested = Signal(dict)
+
+    def __init__(self):
+        super().__init__()
+        self._apps = []
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(12)
+
+        head = QHBoxLayout()
+        title = QLabel("按应用模式")
+        title.setObjectName("H1")
+        head.addWidget(title)
+        head.addStretch(1)
+        self.enabled = QCheckBox("启用按应用模式")
+        head.addWidget(self.enabled)
+        lay.addLayout(head)
+
+        desc = QLabel(
+            "按录音结束时的前台程序，自动切换纠错档位与注入方式；未匹配的应用使用全局设置。"
+        )
+        desc.setObjectName("Muted")
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        for key, label in (("add", "新增"), ("edit", "编辑"), ("delete", "删除")):
+            b = QPushButton(label)
+            b.setObjectName("Ghost")
+            b.clicked.connect(lambda _=False, k=key: self._on_action(k))
+            actions.addWidget(b)
+            setattr(self, "btn_" + key, b)
+        actions.addStretch(1)
+        self.save_btn = QPushButton("保存模式")
+        self.save_btn.setObjectName("Primary")
+        self.save_btn.clicked.connect(self._save)
+        actions.addWidget(self.save_btn)
+        lay.addLayout(actions)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(
+            ["程序（exe）", "显示名", "纠错档位", "注入方式"]
+        )
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.doubleClicked.connect(lambda _idx: self._on_action("edit"))
+        lay.addWidget(self.table, 1)
+
+        self.footer = QLabel()
+        self.footer.setObjectName("Mono")
+        self.footer.setWordWrap(True)
+        lay.addWidget(self.footer)
+
+        self.enabled.stateChanged.connect(lambda _state: self._mark_dirty())
+        self.load_modes()
+
+    def load_modes(self, cfg=None):
+        cfg = cfg or load_cfg()
+        modes = cfg.get("modes") or {}
+        self.enabled.blockSignals(True)
+        self.enabled.setChecked(bool(modes.get("enabled", True)))
+        self.enabled.blockSignals(False)
+        self._apps = [
+            dict(item) for item in (modes.get("apps") or []) if isinstance(item, dict)
+        ]
+        self._reload()
+        self.footer.setText("当前 {} 条应用规则".format(len(self._apps)))
+
+    def _reload(self):
+        self.table.setRowCount(len(self._apps))
+        for i, app in enumerate(self._apps):
+            values = [
+                app.get("exe") or app.get("class") or "—",
+                app.get("name") or "—",
+                LEVEL_LABELS.get(app.get("level"), "跟随全局"),
+                PASTE_LABELS.get(app.get("paste_mode"), "跟随全局"),
+            ]
+            for j, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                if j >= 2:
+                    item.setForeground(QColor(OUTLINE))
+                self.table.setItem(i, j, item)
+        self.table.setColumnWidth(0, 260)
+        self.table.setColumnWidth(1, 180)
+        self.table.setColumnWidth(2, 160)
+
+    def _selected(self):
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self._apps):
+            return None, -1
+        return self._apps[row], row
+
+    def _on_action(self, key):
+        if key == "add":
+            self._add()
+        elif key == "edit":
+            self._edit()
+        elif key == "delete":
+            self._delete()
+
+    def _add(self):
+        dlg = ModeDialog(self, "新增应用模式")
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        values = dlg.values()
+        if not values["exe"] and not values["class"]:
+            self.footer.setText("程序 exe 或窗口类名至少要填一项")
+            return
+        self._apps.append(values)
+        self._reload()
+        self._mark_dirty()
+
+    def _edit(self):
+        app, index = self._selected()
+        if app is None:
+            self.footer.setText("先在表格里选中一行")
+            return
+        dlg = ModeDialog(self, "编辑应用模式", app)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        values = dlg.values()
+        if not values["exe"] and not values["class"]:
+            self.footer.setText("程序 exe 或窗口类名至少要填一项")
+            return
+        self._apps[index] = values
+        self._reload()
+        self._mark_dirty()
+
+    def _delete(self):
+        _app, index = self._selected()
+        if index < 0:
+            self.footer.setText("先在表格里选中一行")
+            return
+        if QMessageBox.question(
+            self, "删除应用模式", "确定删除这条应用规则？",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._apps.pop(index)
+        self._reload()
+        self._mark_dirty()
+
+    def _mark_dirty(self):
+        self.footer.setText("有未保存修改；点「保存模式」后生效")
+
+    def _save(self):
+        apps = []
+        for app in self._apps:
+            cleaned = {k: v for k, v in app.items() if v not in (None, "")}
+            apps.append(cleaned)
+        self.save_requested.emit({
+            "enabled": self.enabled.isChecked(),
+            "apps": apps,
+        })
+
+    def show_result(self, ok, message):
+        self.footer.setStyleSheet("color: %s;" % (SUCCESS if ok else ERROR))
+        self.footer.setText(message)
 
 
 # --------------------------------------------------------------------------
@@ -1181,12 +1621,15 @@ class DictionaryPage(QWidget):
 
 class SettingsPage(QWidget):
     saved = Signal(dict)
+    update_state = Signal(str, object, str)
 
     SECTIONS = ["通用与热键", "音频与录音", "识别模型", "AI 保守纠错",
                 "文本注入", "隐私与数据", "关于"]
 
     def __init__(self):
         super().__init__()
+        self._update_url = ""
+        self.update_state.connect(self._on_update_state)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
@@ -1257,6 +1700,8 @@ class SettingsPage(QWidget):
 
     def _page(self):
         w = QWidget()
+        w.setObjectName("SettingsBody")
+        w.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         v = QVBoxLayout(w)
         v.setContentsMargins(22, 14, 22, 14)
         v.setSpacing(10)
@@ -1320,8 +1765,6 @@ class SettingsPage(QWidget):
         for combo in (self.hotkey, self.settings_hotkey, self.cycle_hotkey):
             combo.currentIndexChanged.connect(self._update_hotkey_state)
 
-        self.autostart = QCheckBox("开机自动启动 mao-voice")
-        self._card(v, "开机自启", "写入当前用户启动项，不需要管理员权限。", self.autostart)
         v.addStretch(1)
         self.stack.addWidget(self._scroll(page))
 
@@ -1486,6 +1929,20 @@ class SettingsPage(QWidget):
             il.addLayout(row)
         v.addWidget(info)
 
+        appearance = QWidget()
+        ap = QVBoxLayout(appearance)
+        ap.setContentsMargins(0, 0, 0, 0)
+        ap.setSpacing(8)
+        self.theme = self._combo(THEMES)
+        ap.addWidget(self.theme)
+        self.autostart = QCheckBox("开机自动启动 mao-voice")
+        ap.addWidget(self.autostart)
+        self._card(
+            v, "外观与启动",
+            "主题切换后需重启客户端；开机自启写入当前用户启动项。",
+            appearance,
+        )
+
         tools = QHBoxLayout()
         rerun = QPushButton("重新运行首次向导")
         rerun.setObjectName("Ghost")
@@ -1493,8 +1950,12 @@ class SettingsPage(QWidget):
         diag = QPushButton("导出诊断信息…")
         diag.setObjectName("Ghost")
         diag.clicked.connect(self._export_diagnostics)
+        check = QPushButton("检查更新")
+        check.setObjectName("Ghost")
+        check.clicked.connect(self._check_update)
         tools.addWidget(rerun)
         tools.addWidget(diag)
+        tools.addWidget(check)
         tools.addStretch(1)
         tw = QWidget()
         tw.setLayout(tools)
@@ -1503,6 +1964,15 @@ class SettingsPage(QWidget):
         self.diag_result.setObjectName("Mono")
         self.diag_result.setWordWrap(True)
         v.addWidget(self.diag_result)
+        self.update_result = QLabel()
+        self.update_result.setObjectName("Mono")
+        self.update_result.setWordWrap(True)
+        v.addWidget(self.update_result)
+        self.update_open = QPushButton("打开下载页")
+        self.update_open.setObjectName("Ghost")
+        self.update_open.setVisible(False)
+        self.update_open.clicked.connect(self._open_update_page)
+        v.addWidget(self.update_open)
         v.addStretch(1)
         self.stack.addWidget(self._scroll(page))
 
@@ -1655,6 +2125,30 @@ class SettingsPage(QWidget):
             self.load_fields(dlg.result_config())
             self.show_result(True, "向导已完成，点「保存设置」生效")
 
+    def _check_update(self):
+        import updater
+        self.update_result.setStyleSheet("color: %s;" % TEXT_VARIANT)
+        self.update_result.setText("正在检查 GitHub Release…")
+        self.update_open.setVisible(False)
+
+        def work():
+            result = updater.check_latest()
+            self.update_state.emit(
+                result["message"], result["ok"], result["url"]
+            )
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_state(self, message, ok, url):
+        self.update_result.setStyleSheet("color: %s;" % (SUCCESS if ok else ERROR))
+        self.update_result.setText(message)
+        self._update_url = url if "发现新版本" in message else ""
+        self.update_open.setVisible(bool(self._update_url))
+
+    def _open_update_page(self):
+        if self._update_url:
+            QDesktopServices.openUrl(QUrl(self._update_url))
+
     def load_fields(self, cfg=None):
         cfg = cfg or load_cfg()
         self._set_combo(self.hotkey, cfg.get("hotkey", "alt_r"))
@@ -1687,6 +2181,7 @@ class SettingsPage(QWidget):
         self.auto_stop.setValue(_to_int(recorder.get("auto_stop_silence_sec"), 0))
         self.warmup.setValue(_to_int(recorder.get("warmup_drafts"), 1))
         self.max_chars.setValue(_to_int(cfg.get("ui", {}).get("max_chars"), 300))
+        self._set_combo(self.theme, cfg.get("ui", {}).get("theme", "dark"))
         self.autostart.setChecked(autostart_enabled())
 
         self._update_hotkey_state()
@@ -1734,6 +2229,7 @@ class SettingsPage(QWidget):
             "ui": {
                 "max_chars": int(self.max_chars.value()),
                 "autostart": self.autostart.isChecked(),
+                "theme": self.theme.currentData(),
             },
             "refine": {
                 "enabled": self.refine_enabled.isChecked(),
@@ -1850,8 +2346,9 @@ class MainWindow(QWidget):
     history_clear_requested = Signal()
     history_inject_requested = Signal(str)
     dictionary_changed = Signal()
+    modes_saved = Signal(dict)
 
-    PAGE_NAMES = ("首页", "历史", "词库", "设置")
+    PAGE_NAMES = ("首页", "历史", "统计", "模式", "词库", "设置")
 
     def __init__(self):
         super().__init__(None, Qt.WindowType.FramelessWindowHint)
@@ -1876,11 +2373,15 @@ class MainWindow(QWidget):
         self.stack = QStackedWidget()
         self.home = HomePage()
         self.history_page = HistoryPage()
+        self.stats_page = StatsPage()
+        self.modes_page = ModesPage()
         self.dictionary_page = DictionaryPage()
         self.settings_page = SettingsPage()
         self.pages = {
             "首页": self.home,
             "历史": self.history_page,
+            "统计": self.stats_page,
+            "模式": self.modes_page,
             "词库": self.dictionary_page,
             "设置": self.settings_page,
         }
@@ -1899,6 +2400,7 @@ class MainWindow(QWidget):
         self.history_page.clear_requested.connect(self.history_clear_requested)
         self.history_page.inject_requested.connect(self.history_inject_requested)
         self.dictionary_page.changed.connect(self.dictionary_changed)
+        self.modes_page.save_requested.connect(self.modes_saved)
         self._apply_cfg(cfg)
         self._set_page("首页")
 
@@ -1915,6 +2417,7 @@ class MainWindow(QWidget):
         lay.addWidget(lab)
         self.nav_buttons = {}
         for name, kind in (("首页", "mic"), ("历史", "history"),
+                           ("统计", "chart"), ("模式", "apps"),
                            ("词库", "dict"), ("设置", "settings")):
             b = NavButton(name, kind)
             b.clicked.connect(lambda _=False, n=name: self._set_page(n))
@@ -2013,6 +2516,10 @@ class MainWindow(QWidget):
             b.set_active(n == name)
         if name == "历史":
             self.history_page.reload()
+        elif name == "统计":
+            self.stats_page.load_stats()
+        elif name == "模式":
+            self.modes_page.load_modes()
         elif name == "词库":
             self.dictionary_page._reload()
         elif name == "首页":
@@ -2048,6 +2555,7 @@ class MainWindow(QWidget):
             self.home.refresh_stats()
             self._update_statusbar(load_cfg())
         self.history_page.reload()
+        self.stats_page.load_stats()
 
     def closeEvent(self, event):
         event.ignore()

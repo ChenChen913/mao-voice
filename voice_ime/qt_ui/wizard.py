@@ -21,9 +21,10 @@ from model_store import resolve_model_path, scan_model_dirs, validate_model_dir
 from recorder import list_input_devices
 from .main_window import HOTKEYS
 from .theme import (
-    ERROR, FONT_MONO, FONT_FAMILY, OUTLINE, OUTLINE_VARIANT, PRIMARY, RADIUS,
-    RADIUS_SM, SUCCESS, SURFACE, SURFACE_CONTAINER, SURFACE_HIGH,
-    SURFACE_HIGHEST, SURFACE_LOW, SURFACE_LOWEST, TEXT, TEXT_VARIANT,
+    ERROR, FONT_MONO, FONT_FAMILY, ON_PRIMARY, OUTLINE, OUTLINE_VARIANT,
+    PRIMARY, PRIMARY_HOVER, RADIUS, RADIUS_SM, SUCCESS, SURFACE,
+    SURFACE_CONTAINER, SURFACE_HIGH, SURFACE_HIGHEST, SURFACE_LOW,
+    SURFACE_LOWEST, TEXT, TEXT_VARIANT,
 )
 
 STEPS = ["欢迎", "麦克风", "识别模型", "热键与 Key"]
@@ -562,9 +563,9 @@ QLineEdit, QComboBox { background: %(container)s; color: %(text)s; border: 1px s
     border-radius: %(radius_sm)s; padding: 7px 11px; min-height: 30px; font-size: 14px; }
 QLineEdit:focus, QComboBox:focus { border-color: %(primary)s; }
 QComboBox QAbstractItemView { background: %(low)s; color: %(text)s; selection-background-color: %(high)s; }
-QPushButton#Primary { background: %(primary)s; color: #002e6a; border: none; border-radius: %(radius_sm)s;
+QPushButton#Primary { background: %(primary)s; color: %(on_primary)s; border: none; border-radius: %(radius_sm)s;
     padding: 8px 18px; font-size: 14px; font-weight: 600; }
-QPushButton#Primary:hover { background: #c4d6ff; }
+QPushButton#Primary:hover { background: %(primary_hover)s; }
 QPushButton#Ghost { background: %(container)s; color: %(muted)s; border: 1px solid %(outline_variant)s;
     border-radius: %(radius_sm)s; padding: 7px 14px; font-size: 13px; }
 QPushButton#Ghost:hover { background: %(high)s; color: %(text)s; }
@@ -576,6 +577,7 @@ QProgressBar::chunk { background: %(primary)s; border-radius: 3px; }
     "bg": SURFACE, "lowest": SURFACE_LOWEST, "low": SURFACE_LOW,
     "container": SURFACE_CONTAINER, "high": SURFACE_HIGH, "highest": SURFACE_HIGHEST,
     "outline": OUTLINE, "outline_variant": OUTLINE_VARIANT, "text": TEXT,
-    "muted": TEXT_VARIANT, "primary": PRIMARY, "radius": RADIUS,
-    "radius_sm": RADIUS_SM, "mono": FONT_MONO, "font": FONT_FAMILY,
+    "muted": TEXT_VARIANT, "primary": PRIMARY, "on_primary": ON_PRIMARY,
+    "primary_hover": PRIMARY_HOVER, "radius": RADIUS, "radius_sm": RADIUS_SM,
+    "mono": FONT_MONO, "font": FONT_FAMILY,
 }

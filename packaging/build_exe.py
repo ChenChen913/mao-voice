@@ -16,6 +16,7 @@
 `--cpu-only`，产物不含 NVIDIA 组件。CI 的 package.yml 固定构建 CPU 版。
 """
 import argparse
+import glob
 import os
 import shutil
 import sys
@@ -60,6 +61,40 @@ def find_nvidia_dll_dirs():
     return dirs
 
 
+def prune_client(dist_dir):
+    """删除 PyInstaller 仍然收集、但客户端运行不需要的 Qt 模块与可选依赖。"""
+    internal = os.path.join(dist_dir, "_internal")
+    files = [
+        os.path.join("PySide6", "Qt6Quick.dll"),
+        os.path.join("PySide6", "Qt6Qml.dll"),
+        os.path.join("PySide6", "Qt6QmlModels.dll"),
+        os.path.join("PySide6", "Qt6QmlWorkerScript.dll"),
+        os.path.join("PySide6", "Qt6QuickControls2.dll"),
+        os.path.join("PySide6", "Qt6QuickTemplates2.dll"),
+        os.path.join("PySide6", "Qt6QuickWidgets.dll"),
+        os.path.join("PySide6", "Qt6Pdf.dll"),
+        os.path.join("PySide6", "Qt6Network.dll"),
+    ]
+    dirs = ["pydantic_core", "qh3", "win32", "pywin32_system32"]
+    removed = 0
+    for rel in files:
+        path = os.path.join(internal, rel)
+        if os.path.isfile(path):
+            os.remove(path)
+            removed += 1
+    for rel in dirs:
+        path = os.path.join(internal, rel)
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+            removed += 1
+    for pattern in ("pydantic_core-*.dist-info", "qh3-*.dist-info", "pywin32-*.dist-info"):
+        for path in glob.glob(os.path.join(internal, pattern)):
+            shutil.rmtree(path, ignore_errors=True)
+            removed += 1
+    if removed:
+        print("已裁剪客户端不需要的 Qt/可选依赖：{} 项".format(removed))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cpu-only", action="store_true",
@@ -80,8 +115,6 @@ def main():
         "--icon", ICON,
         # 模块间是同目录平铺导入（from config import ...），把源码目录加进分析路径
         "--paths", SRC,
-        # 托盘：pystray 在 Windows 上动态导入平台后端（Tk 版仍在使用）
-        "--hidden-import", "pystray._win32",
         # 应用 logo（托盘/窗口图标），源码运行与打包版统一从 assets/ 读取
         "--add-data", "{}{}{}".format(os.path.join(SRC, "assets"), os.pathsep, "assets"),
         # faster-whisper 自带 silero VAD onnx 资产；sounddevice 携带 PortAudio DLL
@@ -91,6 +124,42 @@ def main():
         "--collect-binaries", "ctranslate2",
         "--collect-binaries", "onnxruntime",
     ]
+
+    if args.client:
+        # 客户端不再加载 Tk 设置窗口（main.py 已改为延迟导入），可整块排除；
+        # Qt 侧只保留 Core/Gui/Widgets，排除未使用的模块与插件依赖。
+        excludes = [
+            # 客户端不需要的 Tk/PIL 与科学计算/Notebook 生态：huggingface_hub
+            # 的可选依赖会把 pandas/matplotlib/pyarrow 等整条链带进包里
+            "tkinter", "pystray", "PIL", "pytest", "pygame",
+            "pandas", "matplotlib", "scipy", "numba", "llvmlite", "pyarrow",
+            "pydantic_core", "qh3",
+            "IPython", "ipykernel", "ipywidgets", "jupyter_client",
+            "notebook", "nbformat", "nbconvert",
+            "boto3", "botocore", "hf_xet", "cryptography", "grpc",
+            "fastapi", "starlette", "uvicorn", "mcp", "pydantic",
+            "pydantic_settings", "aiohttp", "websockets", "tornado",
+            "zmq", "sqlalchemy", "sklearn", "sympy", "lxml",
+            "win32", "win32com", "pywintypes", "pythonwin",
+            "torch", "tensorflow", "transformers", "onnx",
+            "PySide6.QtNetwork", "PySide6.QtQml", "PySide6.QtQuick",
+            "PySide6.QtQuickWidgets", "PySide6.QtSql", "PySide6.QtTest",
+            "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets",
+            "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
+            "PySide6.QtWebEngineQuick", "PySide6.QtPdf", "PySide6.QtPdfWidgets",
+            "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtOpenGL",
+            "PySide6.QtOpenGLWidgets", "PySide6.QtBluetooth", "PySide6.QtNfc",
+            "PySide6.QtPositioning", "PySide6.QtLocation", "PySide6.QtSensors",
+            "PySide6.QtSerialPort", "PySide6.QtWebSockets", "PySide6.QtHttpServer",
+            "PySide6.QtRemoteObjects", "PySide6.QtScxml", "PySide6.QtStateMachine",
+            "PySide6.QtSpatialAudio", "PySide6.QtTextToSpeech", "PySide6.QtHelp",
+            "PySide6.QtUiTools", "PySide6.QtDesigner",
+        ]
+        for module in excludes:
+            args_list += ["--exclude-module", module]
+    else:
+        # Tk 版仍使用 pystray 托盘，需要显式收集 Windows 后端
+        args_list += ["--hidden-import", "pystray._win32"]
 
     if not args.cpu_only:
         for pkg, bin_dir in find_nvidia_dll_dirs():
@@ -105,6 +174,8 @@ def main():
     PyInstaller.__main__.run(args_list)
 
     dist_dir = os.path.join(ROOT, "dist", app_name)
+    if args.client:
+        prune_client(dist_dir)
     note = os.path.join(dist_dir, "使用说明-打包版.txt")
     with open(note, "w", encoding="utf-8") as f:
         f.write(

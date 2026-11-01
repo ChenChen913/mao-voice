@@ -42,7 +42,9 @@ class ClientApp(main.App):
     def apply_settings(self, payload):
         """保存设置并尽量立即生效；返回 (是否成功, 说明)。"""
         old_model = self.cfg.get("asr", {}).get("model")
+        old_theme = (self.cfg.get("ui") or {}).get("theme", "dark")
         _merge(self.cfg, payload)
+        theme_changed = (self.cfg.get("ui") or {}).get("theme", "dark") != old_theme
         try:
             save_config(self.cfg)
         except Exception as e:
@@ -92,9 +94,28 @@ class ClientApp(main.App):
             )
         self.window.refresh_data(self.cfg)
         message = "已保存并应用"
+        if theme_changed:
+            message += "；主题将在下次启动生效"
         if not started:
             message += "；" + auto_message
         return True, message
+
+    def apply_modes(self, payload):
+        """保存按应用模式；匹配在每次录音结束时读取最新配置，无需重建引擎。"""
+        modes = self.cfg.setdefault("modes", {})
+        modes["enabled"] = bool(payload.get("enabled", True))
+        modes["apps"] = [
+            dict(item) for item in (payload.get("apps") or []) if isinstance(item, dict)
+        ]
+        try:
+            save_config(self.cfg)
+        except Exception as e:
+            logging.exception("保存应用模式失败")
+            return False, "保存失败：{}".format(e)
+        page = getattr(self.window, "modes_page", None)
+        if page is not None:
+            page.load_modes(self.cfg)
+        return True, "模式已保存，下一次录音生效"
 
     @staticmethod
     def _engine_device(engine):

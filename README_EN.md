@@ -8,7 +8,7 @@
   <a href="./README.md">简体中文</a> | <b>English</b>
   <br><br>
   <a href="https://github.com/ChenChen913/mao-voice/actions/workflows/ci.yml"><img src="https://github.com/ChenChen913/mao-voice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/ChenChen913/mao-voice/releases"><img src="https://img.shields.io/badge/version-5.19.1-blue.svg" alt="Version"></a>
+  <a href="https://github.com/ChenChen913/mao-voice/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
 </p>
 
@@ -77,26 +77,32 @@ Up front: this is neither the most feature-complete nor the most accurate option
 | iFlytek / Sogou input methods | Cross-platform IME | Mostly cloud | Voice inside the IME | Zero setup and strong accuracy; requires installing an IME and uploads audio |
 | Zhipu / Doubao / Typeless AI input | Desktop/mobile AI input | Cloud | Transcription + LLM polish | Complete experience but tied to a subscription and network; this project is offline-capable with swappable models and APIs |
 
-## Client preview (work in progress)
+## Client (6.0.0)
 
 Besides the tray-and-hotkey app, the repo now includes a PySide6 client shell restyled after the `code.html` prototype into a dark instrument look: a main window (Home / History / Dictionary / Settings), the floating capsule and a tray icon, all reusing the existing engine.
 
-The client now ships a **first-run wizard** (privacy notes / mic test / model selection / hotkeys and API key, skippable), a **fully editable dictionary** (add, edit, delete, import/export), **history actions** (re-inject, delete, clear), and **model browsing/scanning with four-file validation** in Settings.
+The client now ships a **first-run wizard** (privacy notes / mic test / model selection / hotkeys and API key, skippable), a **fully editable dictionary** (add, edit, delete, import/export), **history actions** (re-inject, delete, clear), **model browsing/scanning with four-file validation**, plus **per-app modes**, a **stats page**, **update checks** and **dark / light / follow-system themes**.
 
 ![Client home](docs/images/client-home.png)
 
 <details>
-<summary>More screens: first-run wizard / History / Settings / Model settings / Dictionary / Recording capsule</summary>
+<summary>More screens: first-run wizard / History / Stats / Modes / Settings / Model / Dictionary / Light theme / Capsule</summary>
 
 ![First-run wizard](docs/images/client-wizard.png)
 
 ![Client history](docs/images/client-history.png)
+
+![Usage stats](docs/images/client-stats.png)
+
+![Per-app modes](docs/images/client-modes.png)
 
 ![Client settings](docs/images/client-settings.png)
 
 ![Model settings](docs/images/client-settings-model.png)
 
 ![Client dictionary](docs/images/client-dictionary.png)
+
+![Light theme](docs/images/client-home-light.png)
 
 ![Recording capsule](docs/images/client-overlay-recording.png)
 
@@ -107,16 +113,16 @@ cd voice_ime
 python client_main.py     # or double-click 启动客户端.bat
 ```
 
-Current state: the main window, tray, capsule and recording pipeline are wired up; the first-run wizard, dictionary editing and history actions are complete; Settings applies immediately (model switches rebuild the engine, hotkeys reload, autostart writes to the current-user startup key) and diagnostics can be exported. Per-app modes, a stats page, update checks and the light theme remain future work. The Tk `main.py` remains the stable entry point. Both share `config.json`, so do not run them at the same time.
+Current state: the main window, tray, capsule and recording pipeline are wired up; the first-run wizard, dictionary editing, history actions, per-app modes, stats page, update checks and dark/light themes are complete. Settings applies immediately (model switches rebuild the engine, hotkeys reload, autostart writes to the current-user startup key) and diagnostics can be exported. Audio retention/replay and UI localization remain future work. The Tk `main.py` remains the stable entry point. Both share `config.json`, so do not run them at the same time.
 
 ## Quick Start
 
 ### Option 1: Prebuilt package (for users who just want to type)
 
-Download `mao-voice-windows-x64.zip` from [Releases](https://github.com/ChenChen913/mao-voice/releases) (CPU build, built by CI), then:
+Download `mao-voice-windows-x64.zip` (Tk app) or `mao-voice-client-windows-x64.zip` (Qt client, CPU build) from [Releases](https://github.com/ChenChen913/mao-voice/releases). The client shows a four-step wizard on first launch. Then:
 
 1. Put a `faster-whisper-small` or `medium` model folder into `models/` next to the exe (models are too large to bundle);
-2. Double-click `mao-voice.exe`; the first run creates `config.json`;
+2. Double-click `mao-voice.exe` (or `mao-voice-client.exe`); the first run creates `config.json`;
 3. Fill `refine.api_key` in `config.json` (optional) or set the `DEEPSEEK_API_KEY` environment variable;
 4. Press right Alt and speak.
 
@@ -200,7 +206,7 @@ python packaging/build_exe.py --client  # build the Qt client exe (preview)
 ```
 
 - Pushing runs the test CI (Windows + Python 3.12/3.13); a `v*` tag builds and publishes a Release
-- **Versioning**: 5.x is a historical development series and 5.19.1 is the last 5.x. Day-to-day commits no longer bump the version; it changes only on release. The first client release starts at 6.0.0
+- **Versioning**: 5.x is a historical development series and 5.19.1 is the last 5.x. 6.0.0 is the first official client release; 6.x.0 are feature releases and 6.x.y are fixes. Day-to-day commits no longer bump the version; it changes only on release
 - Review history: [OCR audit](docs/audits/OCR审查报告.md), [project audit](docs/audits/项目审核报告.md), [third-round audit](docs/audits/深度审核报告_第三轮_2026-09-28.md) (Chinese)
 - Full version history: [changelog](docs/更新记录.md) (Chinese)
 

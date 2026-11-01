@@ -1,8 +1,8 @@
 name: Package
 
-# v5.18：PyInstaller 打包——打 tag（v*）或手动触发时构建 Windows exe，
-# 产物上传为 artifact；tag 触发时额外发布到 GitHub Release。
-# 注意：首次真实运行前该工作流未在 CI 验证过，失败请看 Actions 日志调整。
+# PyInstaller 打包——打 tag（v*）或手动触发时构建 Windows exe，产物上传为
+# artifact；tag 触发时额外发布到 GitHub Release。
+# 两个 job：Tk 版（mao-voice）与 Qt 客户端（mao-voice-client），均为 CPU 版。
 
 on:
   push:
@@ -50,8 +50,57 @@ jobs:
           name: mao-voice-windows-x64
           path: mao-voice-windows-x64.zip
 
-      - name: Attach to GitHub Release (仅 tag 触发)
-        if: startsWith(github.ref, 'refs/tags/v')
+  build-client:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r voice_ime/requirements.txt
+          pip install pyinstaller
+
+      - name: Build client exe (CPU 版)
+        run: python packaging/build_exe.py --client --cpu-only
+
+      - name: Smoke test (启动客户端并确认进程存活)
+        run: |
+          '{"hotkey":"alt_r","asr":{"model":"models/faster-whisper-medium"}}' | Set-Content -Path "dist/mao-voice-client/config.json" -Encoding utf8
+          Start-Process -FilePath "dist/mao-voice-client/mao-voice-client.exe"
+          Start-Sleep -Seconds 15
+          $p = Get-Process -Name "mao-voice-client" -ErrorAction SilentlyContinue
+          if (-not $p) { throw "mao-voice-client.exe 启动后进程不存在（崩溃）" }
+          Stop-Process -Name "mao-voice-client" -Force
+
+      - name: Zip dist
+        run: |
+          Compress-Archive -Path "dist/mao-voice-client" -DestinationPath "mao-voice-client-windows-x64.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mao-voice-client-windows-x64
+          path: mao-voice-client-windows-x64.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ build, build-client ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download both artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: mao-voice-windows-x64.zip
+          files: |
+            dist/mao-voice-windows-x64/mao-voice-windows-x64.zip
+            dist/mao-voice-client-windows-x64/mao-voice-client-windows-x64.zip

@@ -10,9 +10,12 @@
 用法：python tests/client_smoke.py
 """
 import ctypes
+import json
 import shutil
 import sys
+import tempfile
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
@@ -26,6 +29,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import main  # noqa: E402
 from config import ensure_defaults, load_config  # noqa: E402
+import qt_ui.main_window as mw  # noqa: E402
 from qt_ui.client_app import ClientApp  # noqa: E402
 from qt_ui.main_window import MainWindow  # noqa: E402
 from qt_ui.overlay import QtOverlay  # noqa: E402
@@ -77,11 +81,50 @@ def fg_hwnd():
     return int(ctypes.windll.user32.GetForegroundWindow())
 
 
+DEMO_APPS = ["VS Code", "Windows Terminal", "微信", "Chrome"]
+
+
+def seed_demo_history():
+    """生成一份演示用历史，避免 README 截图全是空状态。"""
+    now = datetime.now()
+    entries = []
+    for i in range(8):
+        day = now - timedelta(days=(7 - i) % 4, hours=i)
+        entries.append({
+            "ts": day.strftime("%Y-%m-%d %H:%M:%S"),
+            "raw": "这个配森脚本跑一下然后打开那个文件",
+            "final": "这个 Python 脚本跑一下，然后打开那个文件。",
+            "duration_s": round(1.4 + i * 0.3, 1),
+            "app": DEMO_APPS[i % len(DEMO_APPS)],
+        })
+    path = Path(tempfile.mkdtemp()) / "history.json"
+    path.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def demo_modes_config(cfg):
+    demo = json.loads(json.dumps(cfg))
+    demo["modes"] = {
+        "enabled": True,
+        "apps": [
+            {"exe": "code.exe", "name": "VS Code", "level": "light", "paste_mode": "auto"},
+            {"exe": "windowsterminal.exe", "name": "Windows Terminal",
+             "level": "conservative", "paste_mode": "unicode"},
+            {"exe": "wechat.exe", "name": "微信", "level": "conservative", "paste_mode": "auto"},
+        ],
+    }
+    return demo
+
+
 def main_run():
     ensure_defaults()
     cfg = load_config()
     qapp = QApplication(sys.argv)
     qapp.setQuitOnLastWindowClosed(False)
+
+    demo_history = seed_demo_history()
+    original_history_path = mw.HISTORY_PATH
+    mw.HISTORY_PATH = str(demo_history)
 
     window = MainWindow()
     window.show()
@@ -156,10 +199,20 @@ def main_run():
     window.settings_page.level.setCurrentIndex(1)  # light
     window.settings_page.save_btn.click()
 
-    # 历史 / 词库页截图，便于检查空状态与表格布局
+    # 历史详情 / 统计 / 模式 / 词库截图
     window.show_page("历史")
     QTest.qWait(200)
     save_shot(window, "client-history.png")
+
+    window.show_page("统计")
+    QTest.qWait(200)
+    save_shot(window, "client-stats.png")
+
+    window.show_page("模式")
+    window.modes_page.load_modes(demo_modes_config(cfg))
+    QTest.qWait(200)
+    save_shot(window, "client-modes.png")
+
     window.show_page("词库")
     QTest.qWait(200)
     save_shot(window, "client-dictionary.png")
@@ -202,6 +255,8 @@ def main_run():
             fake_model.parent.rmdir()
         except OSError:
             pass
+    mw.HISTORY_PATH = original_history_path
+    shutil.rmtree(demo_history.parent, ignore_errors=True)
     overlay.hide()
     qapp.quit()
     if problems:

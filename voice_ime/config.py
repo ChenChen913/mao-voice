@@ -54,7 +54,12 @@ DEFAULT_CONFIG = {
         "level": "conservative",
         "timeout_sec": 30,
     },
-    "ui": {"preview_sec": 1.5, "max_chars": 300, "autostart": False},
+    "ui": {
+        "preview_sec": 1.5, "max_chars": 300, "autostart": False,
+        "theme": "dark",  # dark / light / auto（auto 跟随 Windows 应用浅色模式）
+    },
+    # 按应用模式：按录音结束时的前台程序覆盖纠错档位/注入方式
+    "modes": {"enabled": True, "apps": []},
     # v5.16（M2/B7）：注入行为配置
     # v5.18：paste_mode——粘贴注入方式。"auto"=默认 Ctrl+V，但目标窗口类名命中
     # terminal_classes（终端类应用 Ctrl+V 不是粘贴）时改用 Unicode 直注；
